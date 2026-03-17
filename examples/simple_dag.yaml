@@ -1,0 +1,20 @@
+name: simple-dag
+user: demo
+
+jobs:
+  - name: step_a
+    command: "echo 'Step A'"
+
+  - name: step_b
+    command: "echo 'Step B'"
+
+  - name: step_c
+    command: "echo 'Step C'"
+    depends_on:
+      - step_a
+      - step_b
+
+  - name: step_d
+    command: "echo 'Step D'"
+    depends_on:
+      - step_c

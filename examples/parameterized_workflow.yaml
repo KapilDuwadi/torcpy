@@ -1,0 +1,38 @@
+name: hyperparameter-sweep
+user: demo
+project: ml-experiment
+
+files:
+  - name: dataset
+    path: /data/train.csv
+    st_mtime: 1710000000.0
+  - name: model_{lr:.4f}_{batch}
+    parameters:
+      lr: "0.001:0.01:0.003"
+      batch: "[32,64,128]"
+
+jobs:
+  - name: train_{lr:.4f}_{batch}
+    command: "echo 'Training with lr={lr:.4f} batch={batch}'; sleep 1"
+    parameters:
+      lr: "0.001:0.01:0.003"
+      batch: "[32,64,128]"
+    input_files:
+      - dataset
+    output_files:
+      - model_{lr:.4f}_{batch}
+    resource_requirements:
+      num_cpus: 4
+      num_gpus: 1
+      memory: "8g"
+      runtime: "PT2H"
+    priority: 10
+
+  - name: evaluate
+    command: "echo 'Evaluating all models...'; sleep 1"
+    depends_on_regexes:
+      - "train_.*"
+    resource_requirements:
+      num_cpus: 2
+      memory: "4g"
+      runtime: "PT30M"

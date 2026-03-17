@@ -1,0 +1,39 @@
+name: sample-pipeline
+user: demo
+
+files:
+  - name: raw_data
+    path: /data/raw/input.csv
+    st_mtime: 1710000000.0
+  - name: processed_data
+    path: /data/processed/output.csv
+  - name: report
+    path: /data/reports/summary.txt
+
+jobs:
+  - name: preprocess
+    command: "echo 'Preprocessing data...'; sleep 1; echo 'Done'"
+    input_files:
+      - raw_data
+    output_files:
+      - processed_data
+    resource_requirements:
+      num_cpus: 2
+      memory: "1g"
+      runtime: "PT10M"
+
+  - name: analyze
+    command: "echo 'Analyzing data...'; sleep 2; echo 'Analysis complete'"
+    input_files:
+      - processed_data
+    output_files:
+      - report
+    resource_requirements:
+      num_cpus: 4
+      memory: "2g"
+      runtime: "PT30M"
+
+  - name: notify
+    command: "echo 'Pipeline completed successfully!'"
+    depends_on:
+      - analyze

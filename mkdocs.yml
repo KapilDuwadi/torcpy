@@ -1,0 +1,143 @@
+site_name: TorcPy
+site_description: Distributed workflow orchestration for Python
+site_url: https://torcpy.readthedocs.io
+repo_url: https://github.com/your-org/torcpy
+repo_name: torcpy
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+  logo: assets/logo.svg
+  favicon: assets/favicon.png
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - Installation: getting-started/installation.md
+    - Quick Start (Local): getting-started/quick-start-local.md
+    - Quick Start (Server + Workers): getting-started/quick-start-server.md
+  - Concepts:
+    - concepts/index.md
+    - Architecture: concepts/architecture.md
+    - Job States: concepts/job-states.md
+    - Dependency Resolution: concepts/dependencies.md
+    - Workflow Specification: concepts/workflow-spec.md
+    - Parameter Expansion: concepts/parameterization.md
+    - Resource Management: concepts/resources.md
+  - Tutorials:
+    - tutorials/index.md
+    - Simple DAG: tutorials/simple-dag.md
+    - Diamond Workflow: tutorials/diamond.md
+    - Many Independent Jobs: tutorials/many-jobs.md
+    - Parameter Sweeps: tutorials/parameter-sweep.md
+    - Multi-Stage Pipeline: tutorials/multi-stage.md
+    - Using User Data: tutorials/user-data.md
+  - How-To Guides:
+    - how-to/index.md
+    - Track Workflow Status: how-to/track-status.md
+    - Cancel a Workflow: how-to/cancel-workflow.md
+    - Debug a Failed Job: how-to/debug-failed-job.md
+    - Re-run Failed Jobs: how-to/rerun-failed-jobs.md
+    - Use the Python Library: how-to/use-python-library.md
+    - Parameterize Jobs with Files: how-to/parameterize-with-files.md
+    - Set Resource Requirements: how-to/set-resources.md
+  - Monitoring:
+    - monitoring/index.md
+    - Workflow Reports: monitoring/reports.md
+    - Job Logs: monitoring/logs.md
+    - Debugging Workflows: monitoring/debugging.md
+  - Reference:
+    - reference/index.md
+    - CLI Reference: reference/cli.md
+    - CLI Cheat Sheet: reference/cli-cheatsheet.md
+    - Workflow Specification: reference/workflow-spec.md
+    - Parameter Syntax: reference/parameterization.md
+    - Resource Formats: reference/resources.md
+    - REST API: reference/api.md
+    - Environment Variables: reference/environment-variables.md
+    - Python API: reference/python-api.md
+  - Design:
+    - design/index.md
+    - Architecture: design/architecture.md
+    - Database Schema: design/database.md
+    - Server Design: design/server.md
+    - Client Design: design/client.md
+    - Job Runner: design/job-runner.md
+    - Dependency Graph: design/dependency-graph.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/your-org/torcpy
+  version:
+    provider: mike
+
+extra_css:
+  - assets/extra.css
