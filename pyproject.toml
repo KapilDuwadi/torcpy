@@ -20,6 +20,7 @@ dependencies = [
     "rich>=13.0",
     "pyyaml>=6.0",
     "json5>=0.10",
+    "sqlite-utils>=3.39",
 ]
 
 [project.optional-dependencies]

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select, text
+from pydantic import BaseModel
+from sqlalchemy import insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from torcpy.models.enums import ClaimJobsSortMethod, JobStatus
@@ -21,6 +22,15 @@ from torcpy.server.orm import (
 )
 
 router = APIRouter(prefix="/workflows/{workflow_id}/jobs", tags=["jobs"])
+bulk_router = APIRouter(tags=["jobs"])
+
+
+class _JobsBulkRequest(BaseModel):
+    jobs: list[JobCreate]
+
+
+class _JobsBulkResponse(BaseModel):
+    job_ids: list[int]
 
 
 def _orm_to_job(obj: JobORM) -> Job:
@@ -106,14 +116,73 @@ async def list_jobs(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     off, lim = clamp_pagination(offset, limit)
-    stmt = select(JobORM).where(JobORM.workflow_id == workflow_id)
+
+    # One query replaces the ORM approach (1 main SELECT + 6 selectin queries × ~10 chunks each).
+    # CTE paginates on the bare job table before JOINs so LIMIT/OFFSET operates on job rows,
+    # not on the multiplied JOIN rows. GROUP_CONCAT collapses each relationship into a single
+    # comma-separated string per job.
+    status_clause = "AND j.status = :status" if status is not None else ""
+    sql = text(f"""
+        WITH page AS (
+            SELECT id FROM job
+            WHERE workflow_id = :workflow_id {status_clause}
+            ORDER BY id
+            LIMIT :limit_p1 OFFSET :off
+        )
+        SELECT
+            j.id, j.workflow_id, j.name, j.command, j.status,
+            j.resource_requirements_id, j.scheduler_id, j.failure_handler_id,
+            j.attempt_id, j.priority, j.unblocking_processed,
+            j.cancel_on_blocking_job_failure, j.supports_termination,
+            GROUP_CONCAT(DISTINCT jdo.depends_on_job_id) AS dep_ids,
+            GROUP_CONCAT(DISTINCT jif.file_id)           AS in_file_ids,
+            GROUP_CONCAT(DISTINCT jof.file_id)           AS out_file_ids,
+            GROUP_CONCAT(DISTINCT jiud.user_data_id)     AS in_ud_ids,
+            GROUP_CONCAT(DISTINCT joud.user_data_id)     AS out_ud_ids
+        FROM job j
+        JOIN page ON page.id = j.id
+        LEFT JOIN job_depends_on     jdo  ON jdo.job_id  = j.id
+        LEFT JOIN job_input_file     jif  ON jif.job_id  = j.id
+        LEFT JOIN job_output_file    jof  ON jof.job_id  = j.id
+        LEFT JOIN job_input_user_data  jiud ON jiud.job_id = j.id
+        LEFT JOIN job_output_user_data joud ON joud.job_id = j.id
+        GROUP BY j.id
+        ORDER BY j.id
+    """)
+    params: dict = {"workflow_id": workflow_id, "limit_p1": lim + 1, "off": off}
     if status is not None:
-        stmt = stmt.where(JobORM.status == status)
-    stmt = stmt.order_by(JobORM.id).offset(off).limit(lim + 1)
-    result = await session.execute(stmt)
-    rows = list(result.scalars().unique().all())
+        params["status"] = status
+
+    rows = (await session.execute(sql, params)).fetchall()
     has_more = len(rows) > lim
-    items = [_orm_to_job(r) for r in rows[:lim]]
+    rows = rows[:lim]
+
+    def _ids(s: str | None) -> list[int]:
+        return [int(x) for x in s.split(",")] if s else []
+
+    items = [
+        {
+            "id": r.id,
+            "workflow_id": r.workflow_id,
+            "name": r.name,
+            "command": r.command,
+            "status": r.status,
+            "resource_requirements_id": r.resource_requirements_id,
+            "scheduler_id": r.scheduler_id,
+            "failure_handler_id": r.failure_handler_id,
+            "attempt_id": r.attempt_id,
+            "priority": r.priority,
+            "unblocking_processed": r.unblocking_processed,
+            "cancel_on_blocking_job_failure": bool(r.cancel_on_blocking_job_failure),
+            "supports_termination": bool(r.supports_termination),
+            "depends_on_job_ids": _ids(r.dep_ids),
+            "input_file_ids": _ids(r.in_file_ids),
+            "output_file_ids": _ids(r.out_file_ids),
+            "input_user_data_ids": _ids(r.in_ud_ids),
+            "output_user_data_ids": _ids(r.out_ud_ids),
+        }
+        for r in rows
+    ]
     return {"items": items, "offset": off, "limit": lim, "has_more": has_more}
 
 
@@ -290,3 +359,78 @@ async def reset_job(
     await session.commit()
     await session.refresh(obj)
     return _orm_to_job(obj)
+
+
+@bulk_router.post("/bulk_jobs", status_code=200)
+async def create_jobs_bulk(
+    body: _JobsBulkRequest,
+    session: AsyncSession = Depends(get_session),
+) -> _JobsBulkResponse:
+    """Create jobs in bulk. Max 10,000 per request."""
+    if not body.jobs:
+        return _JobsBulkResponse(jobs=[])
+    if len(body.jobs) > 50_000:
+        raise HTTPException(422, "Too many jobs in batch. Maximum is 50,000.")
+
+    # Verify all referenced workflows exist (typically just one)
+    for wf_id in {j.workflow_id for j in body.jobs}:
+        exists = (
+            await session.execute(select(WorkflowORM.id).where(WorkflowORM.id == wf_id))
+        ).scalar_one_or_none()
+        if exists is None:
+            raise HTTPException(404, f"Workflow {wf_id} not found")
+
+    # Core INSERT — bypasses ORM unit-of-work overhead entirely.
+    # SA 2.0 "insertmanyvalues" generates batched INSERT ... RETURNING statements.
+    job_rows = [
+        {
+            "workflow_id": j.workflow_id,
+            "name": j.name,
+            "command": j.command,
+            "status": int(j.status),
+            "resource_requirements_id": j.resource_requirements_id,
+            "scheduler_id": j.scheduler_id,
+            "failure_handler_id": j.failure_handler_id,
+            "priority": j.priority,
+            "cancel_on_blocking_job_failure": int(j.cancel_on_blocking_job_failure),
+            "supports_termination": int(j.supports_termination),
+        }
+        for j in body.jobs
+    ]
+    result = await session.execute(insert(JobORM).returning(JobORM.id), job_rows)
+    job_ids = [row[0] for row in result.all()]
+
+    # Collect all relationship rows, then bulk-insert each table in one shot
+    dep_rows: list[dict] = []
+    in_file_rows: list[dict] = []
+    out_file_rows: list[dict] = []
+    in_ud_rows: list[dict] = []
+    out_ud_rows: list[dict] = []
+
+    for job_id, j in zip(job_ids, body.jobs):
+        wf_id = j.workflow_id
+        for dep_id in j.depends_on_job_ids or []:
+            dep_rows.append({"job_id": job_id, "depends_on_job_id": dep_id, "workflow_id": wf_id})
+        for fid in j.input_file_ids or []:
+            in_file_rows.append({"job_id": job_id, "file_id": fid, "workflow_id": wf_id})
+        for fid in j.output_file_ids or []:
+            out_file_rows.append({"job_id": job_id, "file_id": fid, "workflow_id": wf_id})
+        for uid in j.input_user_data_ids or []:
+            in_ud_rows.append({"job_id": job_id, "user_data_id": uid})
+        for uid in j.output_user_data_ids or []:
+            out_ud_rows.append({"job_id": job_id, "user_data_id": uid})
+
+    if dep_rows:
+        await session.execute(insert(JobDependsOnORM), dep_rows)
+    if in_file_rows:
+        await session.execute(insert(JobInputFileORM), in_file_rows)
+    if out_file_rows:
+        await session.execute(insert(JobOutputFileORM), out_file_rows)
+    if in_ud_rows:
+        await session.execute(insert(JobInputUserDataORM), in_ud_rows)
+    if out_ud_rows:
+        await session.execute(insert(JobOutputUserDataORM), out_ud_rows)
+
+    await session.commit()
+
+    return _JobsBulkResponse(job_ids=job_ids)

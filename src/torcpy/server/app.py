@@ -21,6 +21,7 @@ from torcpy.server.api import (
     user_data,
     workflows,
 )
+from torcpy.server.api.jobs import bulk_router as jobs_bulk_router
 from torcpy.server.background import BackgroundUnblockTask
 from torcpy.server.orm import Base, make_engine, make_session_factory
 
@@ -65,6 +66,7 @@ def create_app(db_path: str = "torcpy.db") -> FastAPI:
     app.include_router(health.router, prefix=prefix)
     app.include_router(workflows.router, prefix=prefix)
     app.include_router(jobs.router, prefix=prefix)
+    app.include_router(jobs_bulk_router, prefix=prefix)
     app.include_router(files.router, prefix=prefix)
     app.include_router(user_data.router, prefix=prefix)
     app.include_router(resource_requirements.router, prefix=prefix)

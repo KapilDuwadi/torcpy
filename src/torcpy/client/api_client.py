@@ -133,6 +133,16 @@ class TorcClient:
         self._raise_for_status(resp)
         return Job.model_validate(resp.json())
 
+    async def create_jobs(self, jobs: list[dict]) -> list[int]:
+        """Create jobs in bulk via the /bulk_jobs endpoint. Max 50,000 per call.
+
+        Accepts pre-serialized job dicts and returns a list of assigned job IDs
+        in the same order as the input.
+        """
+        resp = await self._client.post("/bulk_jobs", json={"jobs": jobs})
+        self._raise_for_status(resp)
+        return resp.json()["job_ids"]
+
     async def list_jobs(
         self,
         workflow_id: int,

@@ -10,10 +10,12 @@ import json
 import logging
 import os
 import re
+from collections import deque
 from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from torcpy.client.api_client import TorcClient
 from torcpy.client.parameter_expansion import expand_parameters, substitute_template
@@ -28,101 +30,121 @@ from torcpy.models import (
     WorkflowCreate,
 )
 from torcpy.models.enums import JobStatus
+
+_JOB_STATUS_UNINITIALIZED = int(JobStatus.UNINITIALIZED)
 from torcpy.models.failure_handler import FailureHandlerRule
 
 logger = logging.getLogger(__name__)
 
 
-class FileSpec:
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.name: str = data["name"]
-        self.path: str | None = data.get("path")
-        self.st_mtime: float | None = data.get("st_mtime")
-        self.parameters: dict[str, str] = data.get("parameters", {})
+class FileSpec(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str
+    path: str | None = None
+    st_mtime: float | None = None
+    parameters: dict[str, str] = {}
+    use_parameters: list[str] | None = None
 
 
-class UserDataSpec:
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.name: str = data["name"]
-        self.data: Any = data.get("data")
-        self.is_ephemeral: bool = data.get("is_ephemeral", False)
-        self.parameters: dict[str, str] = data.get("parameters", {})
+class UserDataSpec(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str
+    data: Any = None
+    is_ephemeral: bool = False
+    parameters: dict[str, str] = {}
+    use_parameters: list[str] | None = None
 
 
-class ResourceRequirementsSpec:
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.num_cpus: int | None = data.get("num_cpus")
-        self.num_gpus: int | None = data.get("num_gpus")
-        self.num_nodes: int | None = data.get("num_nodes")
-        self.memory: str | None = data.get("memory")
-        self.runtime: str | None = data.get("runtime")
+class ResourceRequirementsSpec(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str | None = None
+    num_cpus: int | None = None
+    num_gpus: int | None = None
+    num_nodes: int | None = None
+    memory: str | None = None
+    runtime: str | None = None
 
 
-class FailureHandlerSpec:
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.name: str = data["name"]
-        self.rules: list[dict[str, Any]] = data.get("rules", [])
-        self.default_max_retries: int = data.get("default_max_retries", 0)
-        self.default_recovery_command: str | None = data.get("default_recovery_command")
+class FailureHandlerSpec(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str
+    rules: list[FailureHandlerRule] = []
+    default_max_retries: int = 0
+    default_recovery_command: str | None = None
 
 
-class JobSpec:
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.name: str = data["name"]
-        self.command: str | None = data.get("command")
-        self.depends_on: list[str] = data.get("depends_on", [])
-        self.depends_on_regexes: list[str] = data.get("depends_on_regexes", [])
-        self.input_files: list[str] = data.get("input_files", [])
-        self.output_files: list[str] = data.get("output_files", [])
-        self.input_user_data: list[str] = data.get("input_user_data", [])
-        self.output_user_data: list[str] = data.get("output_user_data", [])
-        self.resource_requirements: ResourceRequirementsSpec | None = None
-        self.failure_handler: str | None = data.get("failure_handler")
-        self.priority: int = data.get("priority", 0)
-        self.cancel_on_blocking_job_failure: bool = data.get("cancel_on_blocking_job_failure", True)
-        self.supports_termination: bool = data.get("supports_termination", False)
-        self.parameters: dict[str, str] = data.get("parameters", {})
-        self.parameter_mode: str = data.get("parameter_mode", "cartesian")
+class JobSpec(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str
+    command: str | None = None
+    depends_on: list[str] = []
+    depends_on_regexes: list[str] = []
+    input_files: list[str] = []
+    output_files: list[str] = []
+    input_user_data: list[str] = []
+    output_user_data: list[str] = []
+    resource_requirements: ResourceRequirementsSpec | None = None
+    resource_requirements_name: str | None = None
+    failure_handler: str | None = None
+    priority: int = 0
+    cancel_on_blocking_job_failure: bool = True
+    supports_termination: bool = False
+    parameters: dict[str, str] = {}
+    use_parameters: list[str] | None = None
+    parameter_mode: str = "cartesian"
 
-        rr = data.get("resource_requirements")
-        if rr:
-            self.resource_requirements = ResourceRequirementsSpec(rr)
-
-
-class SchedulerSpec:
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.type: str = data.get("type", "local")
-        self.num_cpus: int | None = data.get("num_cpus")
-        self.memory: str | None = data.get("memory")
-        self.account: str | None = data.get("account")
-        self.partition: str | None = data.get("partition")
-        self.slurm_config: dict | None = data.get("slurm_config")
+    @model_validator(mode="before")
+    @classmethod
+    def _split_resource_requirements(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            rr = data.get("resource_requirements")
+            if isinstance(rr, str):
+                data = {**data, "resource_requirements": None, "resource_requirements_name": rr}
+        return data
 
 
-class WorkflowSpec:
+class SchedulerSpec(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    type: str = "local"
+    num_cpus: int | None = None
+    memory: str | None = None
+    account: str | None = None
+    partition: str | None = None
+    slurm_config: dict | None = None
+
+
+class WorkflowSpec(BaseModel):
     """Parsed workflow specification."""
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.name: str = data.get("name", "unnamed")
-        self.user: str | None = data.get("user")
-        self.metadata: dict | None = data.get("metadata")
-        self.project: str | None = data.get("project")
-        self.slurm_defaults: dict | None = data.get("slurm_defaults")
-        self.resource_monitor_config: dict | None = data.get("resource_monitor_config")
-        self.execution_config: dict | None = data.get("execution_config")
+    model_config = ConfigDict(extra="ignore")
+    name: str = "unnamed"
+    user: str | None = None
+    metadata: dict | None = None
+    project: str | None = None
+    slurm_defaults: dict | None = None
+    resource_monitor_config: dict | None = None
+    execution_config: dict | None = None
+    parameters: dict[str, str] = {}
+    resource_requirements: list[ResourceRequirementsSpec] = []
+    files: list[FileSpec] = []
+    user_data: list[UserDataSpec] = []
+    jobs: list[JobSpec] = []
+    schedulers: list[SchedulerSpec] = []
+    failure_handlers: list[FailureHandlerSpec] = []
 
-        self.files: list[FileSpec] = [FileSpec(f) for f in data.get("files", [])]
-        self.user_data: list[UserDataSpec] = [UserDataSpec(u) for u in data.get("user_data", [])]
-        self.jobs: list[JobSpec] = [JobSpec(j) for j in data.get("jobs", [])]
-        self.schedulers: list[SchedulerSpec] = [
-            SchedulerSpec(s) for s in data.get("schedulers", [])
-        ]
-        self.failure_handlers: list[FailureHandlerSpec] = [
-            FailureHandlerSpec(fh) for fh in data.get("failure_handlers", [])
-        ]
+    @model_validator(mode="after")
+    def _validate_rr_refs(self) -> "WorkflowSpec":
+        rr_names = {rr.name for rr in self.resource_requirements}
+        for job in self.jobs:
+            if job.resource_requirements_name and job.resource_requirements_name not in rr_names:
+                raise ValueError(
+                    f"Job '{job.name}' references unknown resource_requirements"
+                    f" '{job.resource_requirements_name}'"
+                )
+        return self
 
     @classmethod
-    def from_file(cls, path: str | Path) -> WorkflowSpec:
+    def from_file(cls, path: str | Path) -> "WorkflowSpec":
         """Load a workflow spec from a file (JSON, JSON5, or YAML)."""
         path = Path(path)
         text = path.read_text(encoding="utf-8")
@@ -140,23 +162,46 @@ class WorkflowSpec:
         else:
             data = json.loads(text)
 
-        return cls(data)
+        return cls.model_validate(data)
 
 
-def _expand_file_specs(files: list[FileSpec]) -> list[FileSpec]:
+def _resolve_parameters(
+    local_params: dict[str, str],
+    use_params: list[str] | None,
+    workflow_params: dict[str, str],
+) -> dict[str, str]:
+    """Resolve effective parameters for a job or file.
+
+    Priority (matching Rust WorkflowSpec::resolve_parameters):
+    - If local_params non-empty → use them (they override workflow-level)
+    - Else if use_params set → filter workflow_params to only those names
+    - Else → empty dict (not parameterized)
+    """
+    if local_params:
+        return local_params
+    if use_params is not None:
+        return {k: v for k, v in workflow_params.items() if k in use_params}
+    return {}
+
+
+def _expand_file_specs(
+    files: list[FileSpec],
+    workflow_params: dict[str, str] | None = None,
+) -> list[FileSpec]:
     """Expand parameterized file specs."""
+    if workflow_params is None:
+        workflow_params = {}
     expanded: list[FileSpec] = []
     for f in files:
-        if f.parameters:
-            combos = expand_parameters(f.parameters)
+        effective_params = _resolve_parameters(f.parameters, f.use_parameters, workflow_params)
+        if effective_params:
+            combos = expand_parameters(effective_params)
             for params in combos:
                 expanded.append(
                     FileSpec(
-                        {
-                            "name": substitute_template(f.name, params),
-                            "path": substitute_template(f.path, params) if f.path else None,
-                            "st_mtime": f.st_mtime,
-                        }
+                        name=substitute_template(f.name, params),
+                        path=substitute_template(f.path, params) if f.path else None,
+                        st_mtime=f.st_mtime,
                     )
                 )
         else:
@@ -164,20 +209,24 @@ def _expand_file_specs(files: list[FileSpec]) -> list[FileSpec]:
     return expanded
 
 
-def _expand_user_data_specs(user_data: list[UserDataSpec]) -> list[UserDataSpec]:
+def _expand_user_data_specs(
+    user_data: list[UserDataSpec],
+    workflow_params: dict[str, str] | None = None,
+) -> list[UserDataSpec]:
     """Expand parameterized user data specs."""
+    if workflow_params is None:
+        workflow_params = {}
     expanded: list[UserDataSpec] = []
     for ud in user_data:
-        if ud.parameters:
-            combos = expand_parameters(ud.parameters)
+        effective_params = _resolve_parameters(ud.parameters, ud.use_parameters, workflow_params)
+        if effective_params:
+            combos = expand_parameters(effective_params)
             for params in combos:
                 expanded.append(
                     UserDataSpec(
-                        {
-                            "name": substitute_template(ud.name, params),
-                            "data": ud.data,
-                            "is_ephemeral": ud.is_ephemeral,
-                        }
+                        name=substitute_template(ud.name, params),
+                        data=ud.data,
+                        is_ephemeral=ud.is_ephemeral,
                     )
                 )
         else:
@@ -185,41 +234,48 @@ def _expand_user_data_specs(user_data: list[UserDataSpec]) -> list[UserDataSpec]
     return expanded
 
 
-def _expand_job_specs(jobs: list[JobSpec], all_job_names: set[str]) -> list[JobSpec]:
+def _expand_job_specs(
+    jobs: list[JobSpec],
+    all_job_names: set[str],
+    workflow_params: dict[str, str] | None = None,
+) -> list[JobSpec]:
     """Expand parameterized job specs and resolve regex dependencies."""
+    if workflow_params is None:
+        workflow_params = {}
     expanded: list[JobSpec] = []
     for job in jobs:
-        if job.parameters:
-            combos = expand_parameters(job.parameters, mode=job.parameter_mode)
+        effective_params = _resolve_parameters(job.parameters, job.use_parameters, workflow_params)
+        if effective_params:
+            combos = expand_parameters(effective_params, mode=job.parameter_mode)
             for params in combos:
-                new_data: dict[str, Any] = {
-                    "name": substitute_template(job.name, params),
-                    "command": (substitute_template(job.command, params) if job.command else None),
-                    "depends_on": [substitute_template(d, params) for d in job.depends_on],
-                    "depends_on_regexes": job.depends_on_regexes,
-                    "input_files": [substitute_template(f, params) for f in job.input_files],
-                    "output_files": [substitute_template(f, params) for f in job.output_files],
-                    "input_user_data": [
-                        substitute_template(u, params) for u in job.input_user_data
-                    ],
-                    "output_user_data": [
-                        substitute_template(u, params) for u in job.output_user_data
-                    ],
-                    "priority": job.priority,
-                    "cancel_on_blocking_job_failure": job.cancel_on_blocking_job_failure,
-                    "supports_termination": job.supports_termination,
-                    "failure_handler": job.failure_handler,
-                }
-                if job.resource_requirements:
-                    rr = job.resource_requirements
-                    new_data["resource_requirements"] = {
-                        "num_cpus": rr.num_cpus,
-                        "num_gpus": rr.num_gpus,
-                        "num_nodes": rr.num_nodes,
-                        "memory": rr.memory,
-                        "runtime": rr.runtime,
-                    }
-                expanded.append(JobSpec(new_data))
+                expanded.append(
+                    JobSpec(
+                        name=substitute_template(job.name, params),
+                        command=(
+                            substitute_template(job.command, params) if job.command else None
+                        ),
+                        depends_on=[substitute_template(d, params) for d in job.depends_on],
+                        depends_on_regexes=job.depends_on_regexes,
+                        input_files=[
+                            substitute_template(f, params) for f in job.input_files
+                        ],
+                        output_files=[
+                            substitute_template(f, params) for f in job.output_files
+                        ],
+                        input_user_data=[
+                            substitute_template(u, params) for u in job.input_user_data
+                        ],
+                        output_user_data=[
+                            substitute_template(u, params) for u in job.output_user_data
+                        ],
+                        priority=job.priority,
+                        cancel_on_blocking_job_failure=job.cancel_on_blocking_job_failure,
+                        supports_termination=job.supports_termination,
+                        failure_handler=job.failure_handler,
+                        resource_requirements=job.resource_requirements,
+                        resource_requirements_name=job.resource_requirements_name,
+                    )
+                )
         else:
             expanded.append(job)
 
@@ -236,6 +292,51 @@ def _expand_job_specs(jobs: list[JobSpec], all_job_names: set[str]) -> list[JobS
                         job.depends_on.append(name)
 
     return expanded
+
+
+def _topological_sort_jobs(jobs: list[JobSpec]) -> list[list[JobSpec]]:
+    """Sort jobs into dependency levels using Kahn's algorithm.
+
+    Returns a list of levels where level 0 has no deps and each subsequent
+    level's deps are all in earlier levels. Raises ValueError on unknown deps
+    or circular dependencies.
+    """
+    name_to_job: dict[str, JobSpec] = {j.name: j for j in jobs}
+    in_degree: dict[str, int] = {j.name: 0 for j in jobs}
+    dependents: dict[str, list[str]] = {j.name: [] for j in jobs}
+
+    for job in jobs:
+        for dep in job.depends_on:
+            if dep not in name_to_job:
+                raise ValueError(f"Job '{job.name}' depends on unknown job '{dep}'")
+            in_degree[job.name] += 1
+            dependents[dep].append(job.name)
+
+    levels: list[list[JobSpec]] = []
+    queue: deque[JobSpec] = deque(j for j in jobs if in_degree[j.name] == 0)
+
+    while queue:
+        level = list(queue)
+        levels.append(level)
+        queue.clear()
+        for job in level:
+            for dep_name in dependents[job.name]:
+                in_degree[dep_name] -= 1
+                if in_degree[dep_name] == 0:
+                    queue.append(name_to_job[dep_name])
+
+    total_processed = sum(len(lvl) for lvl in levels)
+    if total_processed != len(jobs):
+        raise ValueError("Circular dependency detected in job graph")
+
+    return levels
+
+
+def _resolve_id(mapping: dict[str, int], name: str, kind: str, job_name: str) -> int:
+    """Resolve a name to an ID, raising ValueError if not found."""
+    if name not in mapping:
+        raise ValueError(f"Job '{job_name}' references unknown {kind} '{name}'")
+    return mapping[name]
 
 
 async def create_workflow_from_spec(
@@ -266,7 +367,7 @@ async def create_workflow_from_spec(
 
     try:
         # 2. Create files (expand parameters first)
-        expanded_files = _expand_file_specs(spec.files)
+        expanded_files = _expand_file_specs(spec.files, spec.parameters)
         file_name_to_id: dict[str, int] = {}
         for f in expanded_files:
             created = await client.create_file(
@@ -276,7 +377,7 @@ async def create_workflow_from_spec(
             file_name_to_id[f.name] = created.id
 
         # 3. Create user data
-        expanded_ud = _expand_user_data_specs(spec.user_data)
+        expanded_ud = _expand_user_data_specs(spec.user_data, spec.parameters)
         ud_name_to_id: dict[str, int] = {}
         for ud in expanded_ud:
             created_ud = await client.create_user_data(
@@ -293,20 +394,36 @@ async def create_workflow_from_spec(
         # 4. Create failure handlers
         fh_name_to_id: dict[str, int] = {}
         for fh in spec.failure_handlers:
-            rules = [FailureHandlerRule(**r) for r in fh.rules]
             created_fh = await client.create_failure_handler(
                 wf_id,
                 FailureHandlerCreate(
                     workflow_id=wf_id,
                     name=fh.name,
-                    rules=rules,
+                    rules=fh.rules,
                     default_max_retries=fh.default_max_retries,
                     default_recovery_command=fh.default_recovery_command,
                 ),
             )
             fh_name_to_id[fh.name] = created_fh.id
 
-        # 5. Create schedulers
+        # 5. Create named resource requirements once (shared across jobs)
+        rr_name_to_id: dict[str, int] = {}
+        for rr_spec in spec.resource_requirements:
+            created_rr = await client.create_resource_requirements(
+                wf_id,
+                ResourceRequirementsCreate(
+                    workflow_id=wf_id,
+                    num_cpus=rr_spec.num_cpus,
+                    num_gpus=rr_spec.num_gpus,
+                    num_nodes=rr_spec.num_nodes,
+                    memory=rr_spec.memory,
+                    runtime=rr_spec.runtime,
+                ),
+            )
+            if rr_spec.name:
+                rr_name_to_id[rr_spec.name] = created_rr.id
+
+        # 6. Create schedulers
         scheduler_ids: list[int] = []
         for s in spec.schedulers:
             if s.type == "slurm":
@@ -331,142 +448,112 @@ async def create_workflow_from_spec(
                 )
                 scheduler_ids.append(ls.id)
 
-        # 6. Create jobs (expand parameters, resolve names to IDs)
+        # 7. Expand and topologically sort jobs, then create in dependency order
+        _BATCH_SIZE = 50_000
         all_existing_names: set[str] = set()
-        expanded_jobs = _expand_job_specs(spec.jobs, all_existing_names)
+        expanded_jobs = _expand_job_specs(spec.jobs, all_existing_names, spec.parameters)
+        job_levels = _topological_sort_jobs(expanded_jobs)
 
-        # First pass: create all jobs without dependencies
         job_name_to_id: dict[str, int] = {}
-        for job in expanded_jobs:
-            rr_id = None
-            if job.resource_requirements:
-                rr = job.resource_requirements
-                created_rr = await client.create_resource_requirements(
-                    wf_id,
-                    ResourceRequirementsCreate(
-                        workflow_id=wf_id,
-                        num_cpus=rr.num_cpus,
-                        num_gpus=rr.num_gpus,
-                        num_nodes=rr.num_nodes,
-                        memory=rr.memory,
-                        runtime=rr.runtime,
-                    ),
-                )
-                rr_id = created_rr.id
-
-            fh_id = None
-            if job.failure_handler and job.failure_handler in fh_name_to_id:
-                fh_id = fh_name_to_id[job.failure_handler]
-
-            created_job = await client.create_job(
-                wf_id,
-                JobCreate(
-                    workflow_id=wf_id,
-                    name=job.name,
-                    command=job.command,
-                    status=JobStatus.UNINITIALIZED,
-                    resource_requirements_id=rr_id,
-                    failure_handler_id=fh_id,
-                    priority=job.priority,
-                    cancel_on_blocking_job_failure=job.cancel_on_blocking_job_failure,
-                    supports_termination=job.supports_termination,
-                    input_file_ids=[
-                        file_name_to_id[f] for f in job.input_files if f in file_name_to_id
-                    ],
-                    output_file_ids=[
-                        file_name_to_id[f] for f in job.output_files if f in file_name_to_id
-                    ],
-                    input_user_data_ids=[
-                        ud_name_to_id[u] for u in job.input_user_data if u in ud_name_to_id
-                    ],
-                    output_user_data_ids=[
-                        ud_name_to_id[u] for u in job.output_user_data if u in ud_name_to_id
-                    ],
-                    depends_on_job_ids=[],  # Set in second pass
-                ),
-            )
-            job_name_to_id[job.name] = created_job.id
-
-        # Second pass: set explicit dependencies
-        for job in expanded_jobs:
-            if job.depends_on:
-                dep_ids = [job_name_to_id[dep] for dep in job.depends_on if dep in job_name_to_id]
-                if dep_ids:
-                    job_id = job_name_to_id[job.name]
-                    await client.update_job(
-                        wf_id,
-                        job_id,
-                        body=type(
-                            "Deps", (), {"model_dump": lambda self, **kw: {}}
-                        )(),  # no-op; we need raw API call
+        total_created = 0
+        for level in job_levels:
+            # Build (name, job_dict) pairs — plain dicts bypass Pydantic construction
+            # and model_dump overhead for 300k+ jobs.
+            # Inline resource requirements are created individually first (unusual but valid).
+            level_creates: list[tuple[str, dict]] = []
+            for job in level:
+                rr_id: int | None = None
+                if job.resource_requirements_name:
+                    rr_id = _resolve_id(
+                        rr_name_to_id, job.resource_requirements_name, "resource_requirements",
+                        job.name,
                     )
-                    # Use direct dependency insertion via a helper
-                    # Since the API doesn't support adding deps via update,
-                    # we recreate the job or use internal endpoint
-                    # For now, create deps during job creation above
-                    pass
-
-        # Re-create jobs that have explicit dependencies properly
-        # Actually, let's fix this: we need to create with deps
-        for job in expanded_jobs:
-            if job.depends_on:
-                dep_ids = [job_name_to_id[dep] for dep in job.depends_on if dep in job_name_to_id]
-                if dep_ids:
-                    job_id = job_name_to_id[job.name]
-                    # Delete and recreate with dependencies
-                    await client.delete_job(wf_id, job_id)
-
-                    rr_id = None
-                    if job.resource_requirements:
-                        rr = job.resource_requirements
-                        created_rr = await client.create_resource_requirements(
-                            wf_id,
-                            ResourceRequirementsCreate(
-                                workflow_id=wf_id,
-                                num_cpus=rr.num_cpus,
-                                num_gpus=rr.num_gpus,
-                                num_nodes=rr.num_nodes,
-                                memory=rr.memory,
-                                runtime=rr.runtime,
-                            ),
-                        )
-                        rr_id = created_rr.id
-
-                    fh_id = None
-                    if job.failure_handler and job.failure_handler in fh_name_to_id:
-                        fh_id = fh_name_to_id[job.failure_handler]
-
-                    created_job = await client.create_job(
+                elif job.resource_requirements:
+                    rr = job.resource_requirements
+                    created_rr = await client.create_resource_requirements(
                         wf_id,
-                        JobCreate(
+                        ResourceRequirementsCreate(
                             workflow_id=wf_id,
-                            name=job.name,
-                            command=job.command,
-                            status=JobStatus.UNINITIALIZED,
-                            resource_requirements_id=rr_id,
-                            failure_handler_id=fh_id,
-                            priority=job.priority,
-                            cancel_on_blocking_job_failure=job.cancel_on_blocking_job_failure,
-                            supports_termination=job.supports_termination,
-                            depends_on_job_ids=dep_ids,
-                            input_file_ids=[
-                                file_name_to_id[f] for f in job.input_files if f in file_name_to_id
-                            ],
-                            output_file_ids=[
-                                file_name_to_id[f] for f in job.output_files if f in file_name_to_id
-                            ],
-                            input_user_data_ids=[
-                                ud_name_to_id[u] for u in job.input_user_data if u in ud_name_to_id
-                            ],
-                            output_user_data_ids=[
-                                ud_name_to_id[u] for u in job.output_user_data if u in ud_name_to_id
-                            ],
+                            num_cpus=rr.num_cpus,
+                            num_gpus=rr.num_gpus,
+                            num_nodes=rr.num_nodes,
+                            memory=rr.memory,
+                            runtime=rr.runtime,
                         ),
                     )
-                    job_name_to_id[job.name] = created_job.id
+                    rr_id = created_rr.id
+
+                fh_id: int | None = None
+                if job.failure_handler:
+                    fh_id = _resolve_id(
+                        fh_name_to_id, job.failure_handler, "failure_handler", job.name
+                    )
+
+                dep_ids = [
+                    _resolve_id(job_name_to_id, dep, "job", job.name)
+                    for dep in job.depends_on
+                ]
+                input_file_ids = [
+                    _resolve_id(file_name_to_id, f, "file", job.name)
+                    for f in job.input_files
+                ]
+                output_file_ids = [
+                    _resolve_id(file_name_to_id, f, "file", job.name)
+                    for f in job.output_files
+                ]
+                input_ud_ids = [
+                    _resolve_id(ud_name_to_id, u, "user_data", job.name)
+                    for u in job.input_user_data
+                ]
+                output_ud_ids = [
+                    _resolve_id(ud_name_to_id, u, "user_data", job.name)
+                    for u in job.output_user_data
+                ]
+
+                job_dict: dict = {
+                    "workflow_id": wf_id,
+                    "name": job.name,
+                    "status": _JOB_STATUS_UNINITIALIZED,
+                    "priority": job.priority,
+                    "cancel_on_blocking_job_failure": job.cancel_on_blocking_job_failure,
+                    "supports_termination": job.supports_termination,
+                }
+                if job.command is not None:
+                    job_dict["command"] = job.command
+                if rr_id is not None:
+                    job_dict["resource_requirements_id"] = rr_id
+                if fh_id is not None:
+                    job_dict["failure_handler_id"] = fh_id
+                if dep_ids:
+                    job_dict["depends_on_job_ids"] = dep_ids
+                if input_file_ids:
+                    job_dict["input_file_ids"] = input_file_ids
+                if output_file_ids:
+                    job_dict["output_file_ids"] = output_file_ids
+                if input_ud_ids:
+                    job_dict["input_user_data_ids"] = input_ud_ids
+                if output_ud_ids:
+                    job_dict["output_user_data_ids"] = output_ud_ids
+
+                level_creates.append((job.name, job_dict))
+
+            # Send in batches of 50,000
+            for offset in range(0, len(level_creates), _BATCH_SIZE):
+                batch = level_creates[offset : offset + _BATCH_SIZE]
+                returned_ids = await client.create_jobs([jd for _, jd in batch])
+                for (name, _), job_id in zip(batch, returned_ids):
+                    job_name_to_id[name] = job_id
+                total_created += len(batch)
+                logger.info(
+                    "Created %d jobs for workflow_id=%d (%d/%d total)",
+                    len(batch),
+                    wf_id,
+                    total_created,
+                    len(expanded_jobs),
+                )
 
         logger.info(
-            "Created %d files, %d user_data, %d jobs for workflow %d",
+            "Created %d files, %d user_data, %d jobs for workflow_id=%d",
             len(expanded_files),
             len(expanded_ud),
             len(expanded_jobs),
