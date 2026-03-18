@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from torcpy.models.scheduler import (
     LocalScheduler,
@@ -12,8 +14,9 @@ from torcpy.models.scheduler import (
     SlurmScheduler,
     SlurmSchedulerCreate,
 )
-from torcpy.server.database import Database, clamp_pagination
-from torcpy.server.deps import get_db
+from torcpy.server.database import clamp_pagination
+from torcpy.server.deps import get_session
+from torcpy.server.orm import LocalSchedulerORM, SlurmSchedulerORM
 
 local_router = APIRouter(prefix="/workflows/{workflow_id}/local_schedulers", tags=["schedulers"])
 slurm_router = APIRouter(prefix="/workflows/{workflow_id}/slurm_schedulers", tags=["schedulers"])
@@ -22,25 +25,24 @@ slurm_router = APIRouter(prefix="/workflows/{workflow_id}/slurm_schedulers", tag
 # ── Local Scheduler ──
 
 
-def _row_to_local(row: dict) -> LocalScheduler:
+def _orm_to_local(obj: LocalSchedulerORM) -> LocalScheduler:
     return LocalScheduler(
-        id=row["id"],
-        workflow_id=row["workflow_id"],
-        num_cpus=row["num_cpus"],
-        memory=row["memory"],
+        id=obj.id,
+        workflow_id=obj.workflow_id,
+        num_cpus=obj.num_cpus,
+        memory=obj.memory,
     )
 
 
 @local_router.post("", status_code=201)
 async def create_local_scheduler(
-    workflow_id: int, body: LocalSchedulerCreate, db: Database = Depends(get_db)
+    workflow_id: int, body: LocalSchedulerCreate, session: AsyncSession = Depends(get_session)
 ) -> LocalScheduler:
-    sid = await db.insert(
-        "INSERT INTO local_scheduler (workflow_id, num_cpus, memory) VALUES (?, ?, ?)",
-        (workflow_id, body.num_cpus, body.memory),
-    )
-    row = await db.fetchone("SELECT * FROM local_scheduler WHERE id = ?", (sid,))
-    return _row_to_local(row)  # type: ignore[arg-type]
+    obj = LocalSchedulerORM(workflow_id=workflow_id, num_cpus=body.num_cpus, memory=body.memory)
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_local(obj)
 
 
 @local_router.get("")
@@ -48,16 +50,21 @@ async def list_local_schedulers(
     workflow_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(10000, ge=1, le=10000),
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     off, lim = clamp_pagination(offset, limit)
-    rows = await db.fetchall(
-        "SELECT * FROM local_scheduler WHERE workflow_id = ? ORDER BY id LIMIT ? OFFSET ?",
-        (workflow_id, lim + 1, off),
+    stmt = (
+        select(LocalSchedulerORM)
+        .where(LocalSchedulerORM.workflow_id == workflow_id)
+        .order_by(LocalSchedulerORM.id)
+        .offset(off)
+        .limit(lim + 1)
     )
+    result = await session.execute(stmt)
+    rows = list(result.scalars().all())
     has_more = len(rows) > lim
     return {
-        "items": [_row_to_local(r) for r in rows[:lim]],
+        "items": [_orm_to_local(r) for r in rows[:lim]],
         "offset": off,
         "limit": lim,
         "has_more": has_more,
@@ -66,65 +73,64 @@ async def list_local_schedulers(
 
 @local_router.get("/{scheduler_id}")
 async def get_local_scheduler(
-    workflow_id: int, scheduler_id: int, db: Database = Depends(get_db)
+    workflow_id: int, scheduler_id: int, session: AsyncSession = Depends(get_session)
 ) -> LocalScheduler:
-    row = await db.fetchone(
-        "SELECT * FROM local_scheduler WHERE id = ? AND workflow_id = ?",
-        (scheduler_id, workflow_id),
+    stmt = select(LocalSchedulerORM).where(
+        LocalSchedulerORM.id == scheduler_id, LocalSchedulerORM.workflow_id == workflow_id
     )
-    if row is None:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"LocalScheduler {scheduler_id} not found")
-    return _row_to_local(row)
+    return _orm_to_local(obj)
 
 
 @local_router.delete("/{scheduler_id}", status_code=204)
 async def delete_local_scheduler(
-    workflow_id: int, scheduler_id: int, db: Database = Depends(get_db)
+    workflow_id: int, scheduler_id: int, session: AsyncSession = Depends(get_session)
 ) -> None:
-    result = await db.execute(
-        "DELETE FROM local_scheduler WHERE id = ? AND workflow_id = ?",
-        (scheduler_id, workflow_id),
+    stmt = select(LocalSchedulerORM).where(
+        LocalSchedulerORM.id == scheduler_id, LocalSchedulerORM.workflow_id == workflow_id
     )
-    await db.conn.commit()
-    if result.rowcount == 0:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"LocalScheduler {scheduler_id} not found")
+    await session.delete(obj)
+    await session.commit()
 
 
 # ── Slurm Scheduler ──
 
 
-def _row_to_slurm(row: dict) -> SlurmScheduler:
-    sc = row["slurm_config"]
+def _orm_to_slurm(obj: SlurmSchedulerORM) -> SlurmScheduler:
+    sc = obj.slurm_config
     if isinstance(sc, str):
         try:
             sc = json.loads(sc)
         except (json.JSONDecodeError, TypeError):
             sc = None
     return SlurmScheduler(
-        id=row["id"],
-        workflow_id=row["workflow_id"],
-        account=row["account"],
-        partition=row["partition"],
+        id=obj.id,
+        workflow_id=obj.workflow_id,
+        account=obj.account,
+        partition=obj.partition,
         slurm_config=sc,
     )
 
 
 @slurm_router.post("", status_code=201)
 async def create_slurm_scheduler(
-    workflow_id: int, body: SlurmSchedulerCreate, db: Database = Depends(get_db)
+    workflow_id: int, body: SlurmSchedulerCreate, session: AsyncSession = Depends(get_session)
 ) -> SlurmScheduler:
-    sid = await db.insert(
-        "INSERT INTO slurm_scheduler"
-        " (workflow_id, account, partition, slurm_config) VALUES (?,?,?,?)",
-        (
-            workflow_id,
-            body.account,
-            body.partition,
-            json.dumps(body.slurm_config) if body.slurm_config else None,
-        ),
+    obj = SlurmSchedulerORM(
+        workflow_id=workflow_id,
+        account=body.account,
+        partition=body.partition,
+        slurm_config=json.dumps(body.slurm_config) if body.slurm_config else None,
     )
-    row = await db.fetchone("SELECT * FROM slurm_scheduler WHERE id = ?", (sid,))
-    return _row_to_slurm(row)  # type: ignore[arg-type]
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_slurm(obj)
 
 
 @slurm_router.get("")
@@ -132,16 +138,21 @@ async def list_slurm_schedulers(
     workflow_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(10000, ge=1, le=10000),
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     off, lim = clamp_pagination(offset, limit)
-    rows = await db.fetchall(
-        "SELECT * FROM slurm_scheduler WHERE workflow_id = ? ORDER BY id LIMIT ? OFFSET ?",
-        (workflow_id, lim + 1, off),
+    stmt = (
+        select(SlurmSchedulerORM)
+        .where(SlurmSchedulerORM.workflow_id == workflow_id)
+        .order_by(SlurmSchedulerORM.id)
+        .offset(off)
+        .limit(lim + 1)
     )
+    result = await session.execute(stmt)
+    rows = list(result.scalars().all())
     has_more = len(rows) > lim
     return {
-        "items": [_row_to_slurm(r) for r in rows[:lim]],
+        "items": [_orm_to_slurm(r) for r in rows[:lim]],
         "offset": off,
         "limit": lim,
         "has_more": has_more,
@@ -150,25 +161,26 @@ async def list_slurm_schedulers(
 
 @slurm_router.get("/{scheduler_id}")
 async def get_slurm_scheduler(
-    workflow_id: int, scheduler_id: int, db: Database = Depends(get_db)
+    workflow_id: int, scheduler_id: int, session: AsyncSession = Depends(get_session)
 ) -> SlurmScheduler:
-    row = await db.fetchone(
-        "SELECT * FROM slurm_scheduler WHERE id = ? AND workflow_id = ?",
-        (scheduler_id, workflow_id),
+    stmt = select(SlurmSchedulerORM).where(
+        SlurmSchedulerORM.id == scheduler_id, SlurmSchedulerORM.workflow_id == workflow_id
     )
-    if row is None:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"SlurmScheduler {scheduler_id} not found")
-    return _row_to_slurm(row)
+    return _orm_to_slurm(obj)
 
 
 @slurm_router.delete("/{scheduler_id}", status_code=204)
 async def delete_slurm_scheduler(
-    workflow_id: int, scheduler_id: int, db: Database = Depends(get_db)
+    workflow_id: int, scheduler_id: int, session: AsyncSession = Depends(get_session)
 ) -> None:
-    result = await db.execute(
-        "DELETE FROM slurm_scheduler WHERE id = ? AND workflow_id = ?",
-        (scheduler_id, workflow_id),
+    stmt = select(SlurmSchedulerORM).where(
+        SlurmSchedulerORM.id == scheduler_id, SlurmSchedulerORM.workflow_id == workflow_id
     )
-    await db.conn.commit()
-    if result.rowcount == 0:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"SlurmScheduler {scheduler_id} not found")
+    await session.delete(obj)
+    await session.commit()

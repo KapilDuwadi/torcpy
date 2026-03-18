@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from torcpy.models.resource_requirements import (
     ResourceRequirements,
@@ -11,8 +13,9 @@ from torcpy.models.resource_requirements import (
     parse_memory_to_bytes,
     parse_runtime_to_seconds,
 )
-from torcpy.server.database import Database, clamp_pagination
-from torcpy.server.deps import get_db
+from torcpy.server.database import clamp_pagination
+from torcpy.server.deps import get_session
+from torcpy.server.orm import ResourceRequirementsORM
 
 router = APIRouter(
     prefix="/workflows/{workflow_id}/resource_requirements",
@@ -20,17 +23,17 @@ router = APIRouter(
 )
 
 
-def _row_to_rr(row: dict) -> ResourceRequirements:
+def _orm_to_rr(obj: ResourceRequirementsORM) -> ResourceRequirements:
     return ResourceRequirements(
-        id=row["id"],
-        workflow_id=row["workflow_id"],
-        num_cpus=row["num_cpus"],
-        num_gpus=row["num_gpus"],
-        num_nodes=row["num_nodes"],
-        memory=row["memory"],
-        runtime=row["runtime"],
-        memory_bytes=row["memory_bytes"],
-        runtime_s=row["runtime_s"],
+        id=obj.id,
+        workflow_id=obj.workflow_id,
+        num_cpus=obj.num_cpus,
+        num_gpus=obj.num_gpus,
+        num_nodes=obj.num_nodes,
+        memory=obj.memory,
+        runtime=obj.runtime,
+        memory_bytes=obj.memory_bytes,
+        runtime_s=obj.runtime_s,
     )
 
 
@@ -38,30 +41,24 @@ def _row_to_rr(row: dict) -> ResourceRequirements:
 async def create_resource_requirements(
     workflow_id: int,
     body: ResourceRequirementsCreate,
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> ResourceRequirements:
     memory_bytes = body.memory_bytes or parse_memory_to_bytes(body.memory)
     runtime_s = body.runtime_s or parse_runtime_to_seconds(body.runtime)
-
-    rid = await db.insert(
-        """
-        INSERT INTO resource_requirements
-            (workflow_id, num_cpus, num_gpus, num_nodes, memory, runtime, memory_bytes, runtime_s)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            workflow_id,
-            body.num_cpus,
-            body.num_gpus,
-            body.num_nodes,
-            body.memory,
-            body.runtime,
-            memory_bytes,
-            runtime_s,
-        ),
+    obj = ResourceRequirementsORM(
+        workflow_id=workflow_id,
+        num_cpus=body.num_cpus,
+        num_gpus=body.num_gpus,
+        num_nodes=body.num_nodes,
+        memory=body.memory,
+        runtime=body.runtime,
+        memory_bytes=memory_bytes,
+        runtime_s=runtime_s,
     )
-    row = await db.fetchone("SELECT * FROM resource_requirements WHERE id = ?", (rid,))
-    return _row_to_rr(row)  # type: ignore[arg-type]
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_rr(obj)
 
 
 @router.get("")
@@ -69,16 +66,21 @@ async def list_resource_requirements(
     workflow_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(10000, ge=1, le=10000),
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     off, lim = clamp_pagination(offset, limit)
-    rows = await db.fetchall(
-        "SELECT * FROM resource_requirements WHERE workflow_id = ? ORDER BY id LIMIT ? OFFSET ?",
-        (workflow_id, lim + 1, off),
+    stmt = (
+        select(ResourceRequirementsORM)
+        .where(ResourceRequirementsORM.workflow_id == workflow_id)
+        .order_by(ResourceRequirementsORM.id)
+        .offset(off)
+        .limit(lim + 1)
     )
+    result = await session.execute(stmt)
+    rows = list(result.scalars().all())
     has_more = len(rows) > lim
     return {
-        "items": [_row_to_rr(r) for r in rows[:lim]],
+        "items": [_orm_to_rr(r) for r in rows[:lim]],
         "offset": off,
         "limit": lim,
         "has_more": has_more,
@@ -87,15 +89,15 @@ async def list_resource_requirements(
 
 @router.get("/{rr_id}")
 async def get_resource_requirements(
-    workflow_id: int, rr_id: int, db: Database = Depends(get_db)
+    workflow_id: int, rr_id: int, session: AsyncSession = Depends(get_session)
 ) -> ResourceRequirements:
-    row = await db.fetchone(
-        "SELECT * FROM resource_requirements WHERE id = ? AND workflow_id = ?",
-        (rr_id, workflow_id),
+    stmt = select(ResourceRequirementsORM).where(
+        ResourceRequirementsORM.id == rr_id, ResourceRequirementsORM.workflow_id == workflow_id
     )
-    if row is None:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"ResourceRequirements {rr_id} not found")
-    return _row_to_rr(row)
+    return _orm_to_rr(obj)
 
 
 @router.patch("/{rr_id}")
@@ -103,40 +105,36 @@ async def update_resource_requirements(
     workflow_id: int,
     rr_id: int,
     body: ResourceRequirementsUpdate,
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> ResourceRequirements:
-    updates = []
-    params: list = []
+    stmt = select(ResourceRequirementsORM).where(
+        ResourceRequirementsORM.id == rr_id, ResourceRequirementsORM.workflow_id == workflow_id
+    )
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
+        raise HTTPException(404, f"ResourceRequirements {rr_id} not found")
     for field in ("num_cpus", "num_gpus", "num_nodes", "memory", "runtime"):
         val = getattr(body, field)
         if val is not None:
-            updates.append(f"{field} = ?")
-            params.append(val)
+            setattr(obj, field, val)
     if body.memory is not None:
-        updates.append("memory_bytes = ?")
-        params.append(parse_memory_to_bytes(body.memory))
+        obj.memory_bytes = parse_memory_to_bytes(body.memory)
     if body.runtime is not None:
-        updates.append("runtime_s = ?")
-        params.append(parse_runtime_to_seconds(body.runtime))
-    if updates:
-        params.extend([rr_id, workflow_id])
-        await db.execute(
-            "UPDATE resource_requirements SET "
-            f"{', '.join(updates)} WHERE id = ? AND workflow_id = ?",
-            tuple(params),
-        )
-        await db.conn.commit()
-    return await get_resource_requirements(workflow_id, rr_id, db)
+        obj.runtime_s = parse_runtime_to_seconds(body.runtime)
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_rr(obj)
 
 
 @router.delete("/{rr_id}", status_code=204)
 async def delete_resource_requirements(
-    workflow_id: int, rr_id: int, db: Database = Depends(get_db)
+    workflow_id: int, rr_id: int, session: AsyncSession = Depends(get_session)
 ) -> None:
-    result = await db.execute(
-        "DELETE FROM resource_requirements WHERE id = ? AND workflow_id = ?",
-        (rr_id, workflow_id),
+    stmt = select(ResourceRequirementsORM).where(
+        ResourceRequirementsORM.id == rr_id, ResourceRequirementsORM.workflow_id == workflow_id
     )
-    await db.conn.commit()
-    if result.rowcount == 0:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"ResourceRequirements {rr_id} not found")
+    await session.delete(obj)
+    await session.commit()

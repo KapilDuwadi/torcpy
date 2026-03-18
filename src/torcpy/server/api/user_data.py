@@ -5,45 +5,47 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from torcpy.models.user_data import UserData, UserDataCreate, UserDataUpdate
-from torcpy.server.database import Database, clamp_pagination
-from torcpy.server.deps import get_db
+from torcpy.server.database import clamp_pagination
+from torcpy.server.deps import get_session
+from torcpy.server.orm import UserDataORM
 
 router = APIRouter(prefix="/workflows/{workflow_id}/user_data", tags=["user_data"])
 
 
-def _row_to_user_data(row: dict) -> UserData:
-    data = row["data"]
+def _orm_to_user_data(obj: UserDataORM) -> UserData:
+    data = obj.data
     if isinstance(data, str):
         try:
             data = json.loads(data)
         except (json.JSONDecodeError, TypeError):
             pass
     return UserData(
-        id=row["id"],
-        workflow_id=row["workflow_id"],
-        name=row["name"],
+        id=obj.id,
+        workflow_id=obj.workflow_id,
+        name=obj.name,
         data=data,
-        is_ephemeral=bool(row["is_ephemeral"]),
+        is_ephemeral=bool(obj.is_ephemeral),
     )
 
 
 @router.post("", status_code=201)
 async def create_user_data(
-    workflow_id: int, body: UserDataCreate, db: Database = Depends(get_db)
+    workflow_id: int, body: UserDataCreate, session: AsyncSession = Depends(get_session)
 ) -> UserData:
-    uid = await db.insert(
-        "INSERT INTO user_data (workflow_id, name, data, is_ephemeral) VALUES (?, ?, ?, ?)",
-        (
-            workflow_id,
-            body.name,
-            json.dumps(body.data) if body.data is not None else None,
-            int(body.is_ephemeral),
-        ),
+    obj = UserDataORM(
+        workflow_id=workflow_id,
+        name=body.name,
+        data=json.dumps(body.data) if body.data is not None else None,
+        is_ephemeral=int(body.is_ephemeral),
     )
-    row = await db.fetchone("SELECT * FROM user_data WHERE id = ?", (uid,))
-    return _row_to_user_data(row)  # type: ignore[arg-type]
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_user_data(obj)
 
 
 @router.get("")
@@ -51,16 +53,21 @@ async def list_user_data(
     workflow_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(10000, ge=1, le=10000),
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     off, lim = clamp_pagination(offset, limit)
-    rows = await db.fetchall(
-        "SELECT * FROM user_data WHERE workflow_id = ? ORDER BY id LIMIT ? OFFSET ?",
-        (workflow_id, lim + 1, off),
+    stmt = (
+        select(UserDataORM)
+        .where(UserDataORM.workflow_id == workflow_id)
+        .order_by(UserDataORM.id)
+        .offset(off)
+        .limit(lim + 1)
     )
+    result = await session.execute(stmt)
+    rows = list(result.scalars().all())
     has_more = len(rows) > lim
     return {
-        "items": [_row_to_user_data(r) for r in rows[:lim]],
+        "items": [_orm_to_user_data(r) for r in rows[:lim]],
         "offset": off,
         "limit": lim,
         "has_more": has_more,
@@ -69,15 +76,15 @@ async def list_user_data(
 
 @router.get("/{user_data_id}")
 async def get_user_data(
-    workflow_id: int, user_data_id: int, db: Database = Depends(get_db)
+    workflow_id: int, user_data_id: int, session: AsyncSession = Depends(get_session)
 ) -> UserData:
-    row = await db.fetchone(
-        "SELECT * FROM user_data WHERE id = ? AND workflow_id = ?",
-        (user_data_id, workflow_id),
+    stmt = select(UserDataORM).where(
+        UserDataORM.id == user_data_id, UserDataORM.workflow_id == workflow_id
     )
-    if row is None:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"UserData {user_data_id} not found")
-    return _row_to_user_data(row)
+    return _orm_to_user_data(obj)
 
 
 @router.patch("/{user_data_id}")
@@ -85,37 +92,34 @@ async def update_user_data(
     workflow_id: int,
     user_data_id: int,
     body: UserDataUpdate,
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> UserData:
-    updates = []
-    params: list = []
+    stmt = select(UserDataORM).where(
+        UserDataORM.id == user_data_id, UserDataORM.workflow_id == workflow_id
+    )
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
+        raise HTTPException(404, f"UserData {user_data_id} not found")
     if body.name is not None:
-        updates.append("name = ?")
-        params.append(body.name)
+        obj.name = body.name
     if body.data is not None:
-        updates.append("data = ?")
-        params.append(json.dumps(body.data))
+        obj.data = json.dumps(body.data)
     if body.is_ephemeral is not None:
-        updates.append("is_ephemeral = ?")
-        params.append(int(body.is_ephemeral))
-    if updates:
-        params.extend([user_data_id, workflow_id])
-        await db.execute(
-            f"UPDATE user_data SET {', '.join(updates)} WHERE id = ? AND workflow_id = ?",
-            tuple(params),
-        )
-        await db.conn.commit()
-    return await get_user_data(workflow_id, user_data_id, db)
+        obj.is_ephemeral = int(body.is_ephemeral)
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_user_data(obj)
 
 
 @router.delete("/{user_data_id}", status_code=204)
 async def delete_user_data(
-    workflow_id: int, user_data_id: int, db: Database = Depends(get_db)
+    workflow_id: int, user_data_id: int, session: AsyncSession = Depends(get_session)
 ) -> None:
-    result = await db.execute(
-        "DELETE FROM user_data WHERE id = ? AND workflow_id = ?",
-        (user_data_id, workflow_id),
+    stmt = select(UserDataORM).where(
+        UserDataORM.id == user_data_id, UserDataORM.workflow_id == workflow_id
     )
-    await db.conn.commit()
-    if result.rowcount == 0:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"UserData {user_data_id} not found")
+    await session.delete(obj)
+    await session.commit()

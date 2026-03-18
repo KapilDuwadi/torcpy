@@ -22,7 +22,7 @@ from torcpy.server.api import (
     workflows,
 )
 from torcpy.server.background import BackgroundUnblockTask
-from torcpy.server.database import Database
+from torcpy.server.orm import Base, make_engine, make_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +33,15 @@ def create_app(db_path: str = "torcpy.db") -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Startup
-        db = Database(db_path)
-        await db.connect()
-        await db.init_schema()
-        app.state.db = db
+        engine = make_engine(db_path)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
-        bg_task = BackgroundUnblockTask(db, interval=1.0)
+        session_factory = make_session_factory(engine)
+        app.state.engine = engine
+        app.state.session_factory = session_factory
+
+        bg_task = BackgroundUnblockTask(session_factory, interval=1.0)
         bg_task.start()
         app.state.bg_unblock = bg_task
 
@@ -47,7 +50,7 @@ def create_app(db_path: str = "torcpy.db") -> FastAPI:
 
         # Shutdown
         await bg_task.stop()
-        await db.close()
+        await engine.dispose()
         logger.info("TorcPy server stopped")
 
     app = FastAPI(

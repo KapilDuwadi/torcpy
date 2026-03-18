@@ -5,28 +5,31 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from torcpy.models.failure_handler import FailureHandler, FailureHandlerCreate
-from torcpy.server.database import Database, clamp_pagination
-from torcpy.server.deps import get_db
+from torcpy.server.database import clamp_pagination
+from torcpy.server.deps import get_session
+from torcpy.server.orm import FailureHandlerORM
 
 router = APIRouter(prefix="/workflows/{workflow_id}/failure_handlers", tags=["failure_handlers"])
 
 
-def _row_to_fh(row: dict) -> FailureHandler:
-    rules = row["rules"]
+def _orm_to_fh(obj: FailureHandlerORM) -> FailureHandler:
+    rules = obj.rules
     if isinstance(rules, str):
         try:
             rules = json.loads(rules)
         except (json.JSONDecodeError, TypeError):
             rules = []
     return FailureHandler(
-        id=row["id"],
-        workflow_id=row["workflow_id"],
-        name=row["name"],
+        id=obj.id,
+        workflow_id=obj.workflow_id,
+        name=obj.name,
         rules=rules or [],
-        default_max_retries=row["default_max_retries"],
-        default_recovery_command=row["default_recovery_command"],
+        default_max_retries=obj.default_max_retries,
+        default_recovery_command=obj.default_recovery_command,
     )
 
 
@@ -34,24 +37,19 @@ def _row_to_fh(row: dict) -> FailureHandler:
 async def create_failure_handler(
     workflow_id: int,
     body: FailureHandlerCreate,
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> FailureHandler:
-    fhid = await db.insert(
-        """
-        INSERT INTO failure_handler (workflow_id, name, rules, default_max_retries,
-            default_recovery_command)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            workflow_id,
-            body.name,
-            json.dumps([r.model_dump() for r in body.rules]),
-            body.default_max_retries,
-            body.default_recovery_command,
-        ),
+    obj = FailureHandlerORM(
+        workflow_id=workflow_id,
+        name=body.name,
+        rules=json.dumps([r.model_dump() for r in body.rules]),
+        default_max_retries=body.default_max_retries,
+        default_recovery_command=body.default_recovery_command,
     )
-    row = await db.fetchone("SELECT * FROM failure_handler WHERE id = ?", (fhid,))
-    return _row_to_fh(row)  # type: ignore[arg-type]
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_fh(obj)
 
 
 @router.get("")
@@ -59,16 +57,21 @@ async def list_failure_handlers(
     workflow_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(10000, ge=1, le=10000),
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     off, lim = clamp_pagination(offset, limit)
-    rows = await db.fetchall(
-        "SELECT * FROM failure_handler WHERE workflow_id = ? ORDER BY id LIMIT ? OFFSET ?",
-        (workflow_id, lim + 1, off),
+    stmt = (
+        select(FailureHandlerORM)
+        .where(FailureHandlerORM.workflow_id == workflow_id)
+        .order_by(FailureHandlerORM.id)
+        .offset(off)
+        .limit(lim + 1)
     )
+    result = await session.execute(stmt)
+    rows = list(result.scalars().all())
     has_more = len(rows) > lim
     return {
-        "items": [_row_to_fh(r) for r in rows[:lim]],
+        "items": [_orm_to_fh(r) for r in rows[:lim]],
         "offset": off,
         "limit": lim,
         "has_more": has_more,
@@ -77,25 +80,26 @@ async def list_failure_handlers(
 
 @router.get("/{fh_id}")
 async def get_failure_handler(
-    workflow_id: int, fh_id: int, db: Database = Depends(get_db)
+    workflow_id: int, fh_id: int, session: AsyncSession = Depends(get_session)
 ) -> FailureHandler:
-    row = await db.fetchone(
-        "SELECT * FROM failure_handler WHERE id = ? AND workflow_id = ?",
-        (fh_id, workflow_id),
+    stmt = select(FailureHandlerORM).where(
+        FailureHandlerORM.id == fh_id, FailureHandlerORM.workflow_id == workflow_id
     )
-    if row is None:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"FailureHandler {fh_id} not found")
-    return _row_to_fh(row)
+    return _orm_to_fh(obj)
 
 
 @router.delete("/{fh_id}", status_code=204)
 async def delete_failure_handler(
-    workflow_id: int, fh_id: int, db: Database = Depends(get_db)
+    workflow_id: int, fh_id: int, session: AsyncSession = Depends(get_session)
 ) -> None:
-    result = await db.execute(
-        "DELETE FROM failure_handler WHERE id = ? AND workflow_id = ?",
-        (fh_id, workflow_id),
+    stmt = select(FailureHandlerORM).where(
+        FailureHandlerORM.id == fh_id, FailureHandlerORM.workflow_id == workflow_id
     )
-    await db.conn.commit()
-    if result.rowcount == 0:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"FailureHandler {fh_id} not found")
+    await session.delete(obj)
+    await session.commit()

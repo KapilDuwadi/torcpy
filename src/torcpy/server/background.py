@@ -6,8 +6,12 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select, text, update
+
+from torcpy.server.orm import JobORM
+
 if TYPE_CHECKING:
-    from torcpy.server.database import Database
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +19,8 @@ logger = logging.getLogger(__name__)
 class BackgroundUnblockTask:
     """Periodically processes completed/failed/canceled jobs to unblock dependents."""
 
-    def __init__(self, db: Database, interval: float = 1.0) -> None:
-        self.db = db
+    def __init__(self, session_factory: async_sessionmaker, interval: float = 1.0) -> None:
+        self.session_factory = session_factory
         self.interval = interval
         self._task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._event = asyncio.Event()
@@ -65,99 +69,115 @@ class BackgroundUnblockTask:
 
     async def _process_pending_unblocks(self) -> None:
         """Find completed/failed/canceled/terminated jobs and unblock their dependents."""
-        # Find jobs that completed but haven't had dependents unblocked
-        rows = await self.db.fetchall(
-            """
-            SELECT id, workflow_id, status FROM job
-            WHERE status IN (5, 6, 7, 8) AND unblocking_processed = 0
-            """
-        )
+        async with self.session_factory() as session:
+            stmt = select(JobORM.id, JobORM.workflow_id, JobORM.status).where(
+                JobORM.status.in_([5, 6, 7, 8]),
+                JobORM.unblocking_processed == 0,
+            )
+            rows = (await session.execute(stmt)).all()
 
-        if not rows:
-            return
+            if not rows:
+                return
 
-        logger.debug("Processing %d pending unblocks", len(rows))
+            logger.debug("Processing %d pending unblocks", len(rows))
 
-        for row in rows:
-            job_id = row["id"]
-            workflow_id = row["workflow_id"]
-            status = row["status"]
+            for row in rows:
+                job_id, workflow_id, status = row[0], row[1], row[2]
+                try:
+                    # Use BEGIN IMMEDIATE for write safety
+                    await session.execute(text("BEGIN IMMEDIATE"))
+                    try:
+                        if status == 5:  # COMPLETED
+                            await self._unblock_dependents(session, workflow_id, job_id)
+                        elif status in (6, 7, 8):  # FAILED, CANCELED, TERMINATED
+                            await self._handle_failed_dependency(session, workflow_id, job_id)
 
-            try:
-                async with self.db.write_transaction() as conn:
-                    if status == 5:  # COMPLETED
-                        await self._unblock_dependents(conn, workflow_id, job_id)
-                    elif status in (6, 7, 8):  # FAILED, CANCELED, TERMINATED
-                        await self._handle_failed_dependency(conn, workflow_id, job_id)
-
-                    await conn.execute(
-                        "UPDATE job SET unblocking_processed = 1 WHERE id = ?",
-                        (job_id,),
+                        await session.execute(
+                            update(JobORM).where(JobORM.id == job_id).values(unblocking_processed=1)
+                        )
+                        await session.execute(text("COMMIT"))
+                    except Exception:
+                        await session.execute(text("ROLLBACK"))
+                        raise
+                except Exception:
+                    logger.exception(
+                        "Error processing unblock for workflow_id=%d job_id=%d",
+                        workflow_id,
+                        job_id,
                     )
-            except Exception:
-                logger.exception(
-                    "Error processing unblock for workflow_id=%d job_id=%d",
-                    workflow_id,
-                    job_id,
-                )
 
     async def _unblock_dependents(
-        self, conn: object, workflow_id: int, completed_job_id: int
+        self, session: object, workflow_id: int, completed_job_id: int
     ) -> None:
         """Check if any blocked jobs can now be unblocked."""
-        # Find jobs that depend on the completed job
-        dependent_rows = await self.db.fetchall(
-            """
-            SELECT DISTINCT jdo.job_id
-            FROM job_depends_on jdo
-            JOIN job j ON j.id = jdo.job_id
-            WHERE jdo.depends_on_job_id = ? AND j.status = 1
-            """,
-            (completed_job_id,),
-        )
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        assert isinstance(session, AsyncSession)
+
+        dependent_rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT DISTINCT jdo.job_id
+                    FROM job_depends_on jdo
+                    JOIN job j ON j.id = jdo.job_id
+                    WHERE jdo.depends_on_job_id = :job_id AND j.status = 1
+                    """
+                ),
+                {"job_id": completed_job_id},
+            )
+        ).all()
 
         for dep_row in dependent_rows:
-            dep_job_id = dep_row["job_id"]
-            # Check if ALL dependencies of this job are completed
-            unmet = await self.db.fetchone(
-                """
-                SELECT 1 FROM job_depends_on jdo
-                JOIN job j ON j.id = jdo.depends_on_job_id
-                WHERE jdo.job_id = ? AND j.status != 5
-                LIMIT 1
-                """,
-                (dep_job_id,),
-            )
+            dep_job_id = dep_row[0]
+            unmet = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM job_depends_on jdo
+                        JOIN job j ON j.id = jdo.depends_on_job_id
+                        WHERE jdo.job_id = :job_id AND j.status != 5
+                        LIMIT 1
+                        """
+                    ),
+                    {"job_id": dep_job_id},
+                )
+            ).first()
             if unmet is None:
-                # All deps completed — mark as ready
-                await self.db.execute(
-                    "UPDATE job SET status = 2 WHERE id = ? AND status = 1",
-                    (dep_job_id,),
+                await session.execute(
+                    update(JobORM)
+                    .where(JobORM.id == dep_job_id, JobORM.status == 1)
+                    .values(status=2)
                 )
                 logger.debug("Unblocked job workflow_id=%d job_id=%d", workflow_id, dep_job_id)
 
     async def _handle_failed_dependency(
-        self, conn: object, workflow_id: int, failed_job_id: int
+        self, session: object, workflow_id: int, failed_job_id: int
     ) -> None:
         """Cancel jobs that depend on a failed job if cancel_on_blocking_job_failure is set."""
-        dependent_rows = await self.db.fetchall(
-            """
-            SELECT DISTINCT jdo.job_id
-            FROM job_depends_on jdo
-            JOIN job j ON j.id = jdo.job_id
-            WHERE jdo.depends_on_job_id = ?
-              AND j.status IN (0, 1, 2)
-              AND j.cancel_on_blocking_job_failure = 1
-            """,
-            (failed_job_id,),
-        )
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        assert isinstance(session, AsyncSession)
+
+        dependent_rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT DISTINCT jdo.job_id
+                    FROM job_depends_on jdo
+                    JOIN job j ON j.id = jdo.job_id
+                    WHERE jdo.depends_on_job_id = :job_id
+                      AND j.status IN (0, 1, 2)
+                      AND j.cancel_on_blocking_job_failure = 1
+                    """
+                ),
+                {"job_id": failed_job_id},
+            )
+        ).all()
 
         for dep_row in dependent_rows:
-            dep_job_id = dep_row["job_id"]
-            await self.db.execute(
-                "UPDATE job SET status = 7 WHERE id = ?",  # CANCELED
-                (dep_job_id,),
-            )
+            dep_job_id = dep_row[0]
+            await session.execute(update(JobORM).where(JobORM.id == dep_job_id).values(status=7))
             logger.debug(
                 "Canceled dependent job workflow_id=%d job_id=%d (dependency %d failed)",
                 workflow_id,

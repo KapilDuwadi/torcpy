@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import AsyncGenerator
 
 from fastapi import Request
-
-if TYPE_CHECKING:
-    from torcpy.server.database import Database
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def get_db(request: Request) -> Database:
-    """Get database instance from app state."""
-    return request.app.state.db  # type: ignore[no-any-return]
+async def get_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    """Yield an async session from the app-level session factory."""
+    async with request.app.state.session_factory() as session:
+        yield session

@@ -3,57 +3,55 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from torcpy.models.compute_node import ComputeNode, ComputeNodeCreate, ComputeNodeUpdate
-from torcpy.server.database import Database, clamp_pagination
-from torcpy.server.deps import get_db
+from torcpy.server.database import clamp_pagination
+from torcpy.server.deps import get_session
+from torcpy.server.orm import ComputeNodeORM
 
 router = APIRouter(prefix="/workflows/{workflow_id}/compute_nodes", tags=["compute_nodes"])
 
 
-def _row_to_cn(row: dict) -> ComputeNode:
+def _orm_to_cn(obj: ComputeNodeORM) -> ComputeNode:
     return ComputeNode(
-        id=row["id"],
-        workflow_id=row["workflow_id"],
-        hostname=row["hostname"],
-        pid=row["pid"],
-        start_time=row["start_time"],
-        is_active=bool(row["is_active"]),
-        num_cpus=row["num_cpus"],
-        memory_gb=row["memory_gb"],
-        num_gpus=row["num_gpus"],
-        num_nodes=row["num_nodes"],
-        time_limit=row["time_limit"],
-        scheduler_config_id=row["scheduler_config_id"],
+        id=obj.id,
+        workflow_id=obj.workflow_id,
+        hostname=obj.hostname,
+        pid=obj.pid,
+        start_time=obj.start_time,
+        is_active=bool(obj.is_active),
+        num_cpus=obj.num_cpus,
+        memory_gb=obj.memory_gb,
+        num_gpus=obj.num_gpus,
+        num_nodes=obj.num_nodes,
+        time_limit=obj.time_limit,
+        scheduler_config_id=obj.scheduler_config_id,
     )
 
 
 @router.post("", status_code=201)
 async def create_compute_node(
-    workflow_id: int, body: ComputeNodeCreate, db: Database = Depends(get_db)
+    workflow_id: int, body: ComputeNodeCreate, session: AsyncSession = Depends(get_session)
 ) -> ComputeNode:
-    cid = await db.insert(
-        """
-        INSERT INTO compute_node (workflow_id, hostname, pid, start_time, is_active,
-            num_cpus, memory_gb, num_gpus, num_nodes, time_limit, scheduler_config_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            workflow_id,
-            body.hostname,
-            body.pid,
-            body.start_time,
-            int(body.is_active),
-            body.num_cpus,
-            body.memory_gb,
-            body.num_gpus,
-            body.num_nodes,
-            body.time_limit,
-            body.scheduler_config_id,
-        ),
+    obj = ComputeNodeORM(
+        workflow_id=workflow_id,
+        hostname=body.hostname,
+        pid=body.pid,
+        start_time=body.start_time,
+        is_active=int(body.is_active),
+        num_cpus=body.num_cpus,
+        memory_gb=body.memory_gb,
+        num_gpus=body.num_gpus,
+        num_nodes=body.num_nodes,
+        time_limit=body.time_limit,
+        scheduler_config_id=body.scheduler_config_id,
     )
-    row = await db.fetchone("SELECT * FROM compute_node WHERE id = ?", (cid,))
-    return _row_to_cn(row)  # type: ignore[arg-type]
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_cn(obj)
 
 
 @router.get("")
@@ -61,16 +59,21 @@ async def list_compute_nodes(
     workflow_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(10000, ge=1, le=10000),
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     off, lim = clamp_pagination(offset, limit)
-    rows = await db.fetchall(
-        "SELECT * FROM compute_node WHERE workflow_id = ? ORDER BY id LIMIT ? OFFSET ?",
-        (workflow_id, lim + 1, off),
+    stmt = (
+        select(ComputeNodeORM)
+        .where(ComputeNodeORM.workflow_id == workflow_id)
+        .order_by(ComputeNodeORM.id)
+        .offset(off)
+        .limit(lim + 1)
     )
+    result = await session.execute(stmt)
+    rows = list(result.scalars().all())
     has_more = len(rows) > lim
     return {
-        "items": [_row_to_cn(r) for r in rows[:lim]],
+        "items": [_orm_to_cn(r) for r in rows[:lim]],
         "offset": off,
         "limit": lim,
         "has_more": has_more,
@@ -79,15 +82,15 @@ async def list_compute_nodes(
 
 @router.get("/{node_id}")
 async def get_compute_node(
-    workflow_id: int, node_id: int, db: Database = Depends(get_db)
+    workflow_id: int, node_id: int, session: AsyncSession = Depends(get_session)
 ) -> ComputeNode:
-    row = await db.fetchone(
-        "SELECT * FROM compute_node WHERE id = ? AND workflow_id = ?",
-        (node_id, workflow_id),
+    stmt = select(ComputeNodeORM).where(
+        ComputeNodeORM.id == node_id, ComputeNodeORM.workflow_id == workflow_id
     )
-    if row is None:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"ComputeNode {node_id} not found")
-    return _row_to_cn(row)
+    return _orm_to_cn(obj)
 
 
 @router.patch("/{node_id}")
@@ -95,43 +98,38 @@ async def update_compute_node(
     workflow_id: int,
     node_id: int,
     body: ComputeNodeUpdate,
-    db: Database = Depends(get_db),
+    session: AsyncSession = Depends(get_session),
 ) -> ComputeNode:
-    updates = []
-    params: list = []
+    stmt = select(ComputeNodeORM).where(
+        ComputeNodeORM.id == node_id, ComputeNodeORM.workflow_id == workflow_id
+    )
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
+        raise HTTPException(404, f"ComputeNode {node_id} not found")
     if body.hostname is not None:
-        updates.append("hostname = ?")
-        params.append(body.hostname)
+        obj.hostname = body.hostname
     if body.is_active is not None:
-        updates.append("is_active = ?")
-        params.append(int(body.is_active))
+        obj.is_active = int(body.is_active)
     if body.num_cpus is not None:
-        updates.append("num_cpus = ?")
-        params.append(body.num_cpus)
+        obj.num_cpus = body.num_cpus
     if body.memory_gb is not None:
-        updates.append("memory_gb = ?")
-        params.append(body.memory_gb)
+        obj.memory_gb = body.memory_gb
     if body.num_gpus is not None:
-        updates.append("num_gpus = ?")
-        params.append(body.num_gpus)
-    if updates:
-        params.extend([node_id, workflow_id])
-        await db.execute(
-            f"UPDATE compute_node SET {', '.join(updates)} WHERE id = ? AND workflow_id = ?",
-            tuple(params),
-        )
-        await db.conn.commit()
-    return await get_compute_node(workflow_id, node_id, db)
+        obj.num_gpus = body.num_gpus
+    await session.commit()
+    await session.refresh(obj)
+    return _orm_to_cn(obj)
 
 
 @router.delete("/{node_id}", status_code=204)
 async def delete_compute_node(
-    workflow_id: int, node_id: int, db: Database = Depends(get_db)
+    workflow_id: int, node_id: int, session: AsyncSession = Depends(get_session)
 ) -> None:
-    result = await db.execute(
-        "DELETE FROM compute_node WHERE id = ? AND workflow_id = ?",
-        (node_id, workflow_id),
+    stmt = select(ComputeNodeORM).where(
+        ComputeNodeORM.id == node_id, ComputeNodeORM.workflow_id == workflow_id
     )
-    await db.conn.commit()
-    if result.rowcount == 0:
+    obj = (await session.execute(stmt)).scalar_one_or_none()
+    if obj is None:
         raise HTTPException(404, f"ComputeNode {node_id} not found")
+    await session.delete(obj)
+    await session.commit()
