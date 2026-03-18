@@ -1,7 +1,5 @@
 """Workflow action models."""
 
-from typing import Any
-
 from pydantic import BaseModel
 
 from torcpy.models.enums import ActionType, TriggerType

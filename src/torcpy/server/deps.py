@@ -10,6 +10,6 @@ if TYPE_CHECKING:
     from torcpy.server.database import Database
 
 
-def get_db(request: Request) -> "Database":
+def get_db(request: Request) -> Database:
     """Get database instance from app state."""
     return request.app.state.db  # type: ignore[no-any-return]

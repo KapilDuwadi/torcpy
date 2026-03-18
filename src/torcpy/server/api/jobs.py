@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -62,9 +61,7 @@ async def _row_to_job(db: Database, row: Any) -> Job:
 
 
 @router.post("", status_code=201)
-async def create_job(
-    workflow_id: int, body: JobCreate, db: Database = Depends(get_db)
-) -> Job:
+async def create_job(workflow_id: int, body: JobCreate, db: Database = Depends(get_db)) -> Job:
     wf = await db.fetchone("SELECT id FROM workflow WHERE id = ?", (workflow_id,))
     if wf is None:
         raise HTTPException(404, f"Workflow {workflow_id} not found")
@@ -147,9 +144,7 @@ async def list_jobs(
 
 
 @router.get("/{job_id}")
-async def get_job(
-    workflow_id: int, job_id: int, db: Database = Depends(get_db)
-) -> Job:
+async def get_job(workflow_id: int, job_id: int, db: Database = Depends(get_db)) -> Job:
     row = await db.fetchone(
         "SELECT * FROM job WHERE id = ? AND workflow_id = ?", (job_id, workflow_id)
     )
@@ -168,8 +163,14 @@ async def update_job(
     updates = []
     params: list = []
 
-    for field in ("name", "command", "resource_requirements_id", "scheduler_id",
-                  "failure_handler_id", "priority"):
+    for field in (
+        "name",
+        "command",
+        "resource_requirements_id",
+        "scheduler_id",
+        "failure_handler_id",
+        "priority",
+    ):
         val = getattr(body, field)
         if val is not None:
             updates.append(f"{field} = ?")
@@ -197,9 +198,7 @@ async def update_job(
 
 
 @router.delete("/{job_id}", status_code=204)
-async def delete_job(
-    workflow_id: int, job_id: int, db: Database = Depends(get_db)
-) -> None:
+async def delete_job(workflow_id: int, job_id: int, db: Database = Depends(get_db)) -> None:
     result = await db.execute(
         "DELETE FROM job WHERE id = ? AND workflow_id = ?", (job_id, workflow_id)
     )

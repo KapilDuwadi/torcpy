@@ -70,7 +70,8 @@ async def list_results(
     off, lim = clamp_pagination(offset, limit)
     if job_id is not None:
         rows = await db.fetchall(
-            "SELECT * FROM result WHERE workflow_id = ? AND job_id = ? ORDER BY id LIMIT ? OFFSET ?",
+            "SELECT * FROM result WHERE workflow_id = ? AND job_id = ?"
+            " ORDER BY id LIMIT ? OFFSET ?",
             (workflow_id, job_id, lim + 1, off),
         )
     else:
@@ -88,9 +89,7 @@ async def list_results(
 
 
 @router.get("/{result_id}")
-async def get_result(
-    workflow_id: int, result_id: int, db: Database = Depends(get_db)
-) -> Result:
+async def get_result(workflow_id: int, result_id: int, db: Database = Depends(get_db)) -> Result:
     row = await db.fetchone(
         "SELECT * FROM result WHERE id = ? AND workflow_id = ?",
         (result_id, workflow_id),
@@ -101,9 +100,7 @@ async def get_result(
 
 
 @router.delete("/{result_id}", status_code=204)
-async def delete_result(
-    workflow_id: int, result_id: int, db: Database = Depends(get_db)
-) -> None:
+async def delete_result(workflow_id: int, result_id: int, db: Database = Depends(get_db)) -> None:
     result = await db.execute(
         "DELETE FROM result WHERE id = ? AND workflow_id = ?",
         (result_id, workflow_id),

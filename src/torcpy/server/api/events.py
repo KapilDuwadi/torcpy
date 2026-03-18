@@ -64,9 +64,7 @@ async def list_events(
 
 
 @router.get("/{event_id}")
-async def get_event(
-    workflow_id: int, event_id: int, db: Database = Depends(get_db)
-) -> Event:
+async def get_event(workflow_id: int, event_id: int, db: Database = Depends(get_db)) -> Event:
     row = await db.fetchone(
         "SELECT * FROM event WHERE id = ? AND workflow_id = ?",
         (event_id, workflow_id),
@@ -77,9 +75,7 @@ async def get_event(
 
 
 @router.delete("/{event_id}", status_code=204)
-async def delete_event(
-    workflow_id: int, event_id: int, db: Database = Depends(get_db)
-) -> None:
+async def delete_event(workflow_id: int, event_id: int, db: Database = Depends(get_db)) -> None:
     result = await db.execute(
         "DELETE FROM event WHERE id = ? AND workflow_id = ?",
         (event_id, workflow_id),

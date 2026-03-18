@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import signal
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from torcpy.client.api_client import TorcClient
-from torcpy.client.async_command import CommandResult, run_command
+from torcpy.client.async_command import run_command
 from torcpy.client.resource_tracker import ResourceTracker
 from torcpy.models import Job, ResourceRequirements, ResultCreate
 from torcpy.models.enums import JobStatus, StdioMode
@@ -151,18 +150,12 @@ class JobRunner:
                                 body=type(
                                     "StatusUpdate",
                                     (),
-                                    {
-                                        "model_dump": lambda self, **kw: {
-                                            "status": JobStatus.READY
-                                        }
-                                    },
+                                    {"model_dump": lambda self, **kw: {"status": JobStatus.READY}},
                                 )(),
                             )
 
             # Clean up finished tasks
-            finished = [
-                jid for jid, task in self._running_tasks.items() if task.done()
-            ]
+            finished = [jid for jid, task in self._running_tasks.items() if task.done()]
             for jid in finished:
                 task = self._running_tasks.pop(jid)
                 self.resources.release(jid)
@@ -189,9 +182,7 @@ class JobRunner:
 
         return stats
 
-    async def _get_resource_requirements(
-        self, job: Job
-    ) -> ResourceRequirements | None:
+    async def _get_resource_requirements(self, job: Job) -> ResourceRequirements | None:
         if job.resource_requirements_id is None:
             return None
         if job.resource_requirements_id in self._rr_cache:
@@ -219,9 +210,7 @@ class JobRunner:
 
         if not job.command:
             logger.warning("Job %d has no command, marking completed", job.id)
-            await self.client.complete_job(
-                self.workflow_id, job.id, status=JobStatus.COMPLETED
-            )
+            await self.client.complete_job(self.workflow_id, job.id, status=JobStatus.COMPLETED)
             return
 
         try:
@@ -232,9 +221,7 @@ class JobRunner:
                 stdio_mode=self.config.stdio_mode,
             )
 
-            final_status = (
-                JobStatus.COMPLETED if result.return_code == 0 else JobStatus.FAILED
-            )
+            final_status = JobStatus.COMPLETED if result.return_code == 0 else JobStatus.FAILED
 
             # Create result record
             await self.client.create_result(
@@ -249,9 +236,7 @@ class JobRunner:
                 ),
             )
 
-            await self.client.complete_job(
-                self.workflow_id, job.id, status=final_status
-            )
+            await self.client.complete_job(self.workflow_id, job.id, status=final_status)
             logger.info(
                 "Job %d (%s) %s (%.1fs)",
                 job.id,
@@ -262,9 +247,7 @@ class JobRunner:
 
         except Exception:
             logger.exception("Job %d execution error", job.id)
-            await self.client.complete_job(
-                self.workflow_id, job.id, status=JobStatus.FAILED
-            )
+            await self.client.complete_job(self.workflow_id, job.id, status=JobStatus.FAILED)
 
     def _handle_shutdown(self) -> None:
         logger.info("Shutdown signal received")

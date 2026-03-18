@@ -60,9 +60,7 @@ async def test_initialize_and_claim(client: AsyncClient):
     assert init_data["ready_jobs"] == 2
 
     # Claim jobs
-    claim_resp = await client.post(
-        f"/workflows/{wf_id}/jobs/claim", params={"count": 2}
-    )
+    claim_resp = await client.post(f"/workflows/{wf_id}/jobs/claim", params={"count": 2})
     assert claim_resp.status_code == 200
     claimed = claim_resp.json()
     assert len(claimed) == 2
@@ -90,7 +88,7 @@ async def test_dependency_blocking(client: AsyncClient):
             "depends_on_job_ids": [j1_id],
         },
     )
-    j2_id = j2_resp.json()["id"]
+    _ = j2_resp.json()["id"]
 
     # Initialize
     init_resp = await client.post(f"/workflows/{wf_id}/initialize")
@@ -99,9 +97,7 @@ async def test_dependency_blocking(client: AsyncClient):
     assert init_data["blocked_jobs"] == 1
 
     # Only job1 should be claimable
-    claim_resp = await client.post(
-        f"/workflows/{wf_id}/jobs/claim", params={"count": 10}
-    )
+    claim_resp = await client.post(f"/workflows/{wf_id}/jobs/claim", params={"count": 10})
     claimed = claim_resp.json()
     assert len(claimed) == 1
     assert claimed[0]["id"] == j1_id

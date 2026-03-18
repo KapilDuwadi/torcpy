@@ -24,13 +24,9 @@ def _row_to_workflow(row: dict) -> Workflow:
         metadata=json.loads(row["metadata"]) if row["metadata"] else None,
         slurm_defaults=json.loads(row["slurm_defaults"]) if row["slurm_defaults"] else None,
         resource_monitor_config=(
-            json.loads(row["resource_monitor_config"])
-            if row["resource_monitor_config"]
-            else None
+            json.loads(row["resource_monitor_config"]) if row["resource_monitor_config"] else None
         ),
-        execution_config=(
-            json.loads(row["execution_config"]) if row["execution_config"] else None
-        ),
+        execution_config=(json.loads(row["execution_config"]) if row["execution_config"] else None),
         use_pending_failed=bool(row["use_pending_failed"]),
         project=row["project"],
         status=WorkflowStatus(
@@ -43,9 +39,7 @@ def _row_to_workflow(row: dict) -> Workflow:
 
 
 @router.post("", status_code=201)
-async def create_workflow(
-    body: WorkflowCreate, db: Database = Depends(get_db)
-) -> Workflow:
+async def create_workflow(body: WorkflowCreate, db: Database = Depends(get_db)) -> Workflow:
     now = time.time()
     user = body.user or "anonymous"
     wf_id = await db.insert(
@@ -67,7 +61,8 @@ async def create_workflow(
         ),
     )
     await db.execute(
-        "INSERT INTO workflow_status (workflow_id, run_id, is_archived, is_canceled) VALUES (?,0,0,0)",
+        "INSERT INTO workflow_status"
+        " (workflow_id, run_id, is_archived, is_canceled) VALUES (?,0,0,0)",
         (wf_id,),
     )
     await db.conn.commit()

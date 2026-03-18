@@ -1,10 +1,8 @@
 """Tests for workflow spec parsing."""
 
 import json
-import tempfile
 from pathlib import Path
 
-import pytest
 import yaml
 
 from torcpy.client.workflow_spec import WorkflowSpec

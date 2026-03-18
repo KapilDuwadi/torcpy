@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
-from torcpy.server.background import BackgroundUnblockTask
-from torcpy.server.database import Database
 from torcpy.server.api import (
-    health,
-    workflows,
-    jobs,
-    files,
-    user_data,
-    resource_requirements,
-    results,
     compute_nodes,
     events,
     failure_handlers,
+    files,
+    health,
+    jobs,
+    resource_requirements,
+    results,
     schedulers,
+    user_data,
+    workflows,
 )
+from torcpy.server.background import BackgroundUnblockTask
+from torcpy.server.database import Database
 
 logger = logging.getLogger(__name__)
 

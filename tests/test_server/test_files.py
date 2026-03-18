@@ -37,7 +37,7 @@ async def test_implicit_dependency_via_files(client: AsyncClient):
     file_id = file_resp.json()["id"]
 
     # Job1 produces the file
-    j1_resp = await client.post(
+    await client.post(
         f"/workflows/{wf_id}/jobs",
         json={
             "workflow_id": wf_id,
@@ -48,7 +48,7 @@ async def test_implicit_dependency_via_files(client: AsyncClient):
     )
 
     # Job2 consumes the file
-    j2_resp = await client.post(
+    await client.post(
         f"/workflows/{wf_id}/jobs",
         json={
             "workflow_id": wf_id,

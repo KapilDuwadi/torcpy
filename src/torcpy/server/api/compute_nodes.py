@@ -8,9 +8,7 @@ from torcpy.models.compute_node import ComputeNode, ComputeNodeCreate, ComputeNo
 from torcpy.server.database import Database, clamp_pagination
 from torcpy.server.deps import get_db
 
-router = APIRouter(
-    prefix="/workflows/{workflow_id}/compute_nodes", tags=["compute_nodes"]
-)
+router = APIRouter(prefix="/workflows/{workflow_id}/compute_nodes", tags=["compute_nodes"])
 
 
 def _row_to_cn(row: dict) -> ComputeNode:

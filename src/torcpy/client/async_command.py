@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,14 +107,16 @@ async def run_command(
                 await asyncio.wait_for(process.wait(), timeout=walltime_seconds)
             else:
                 await process.wait()
-        except asyncio.TimeoutError:
-            logger.warning("Job %d exceeded walltime (%.0fs), terminating", job_id, walltime_seconds)
+        except TimeoutError:
+            logger.warning(
+                "Job %d exceeded walltime (%.0fs), terminating", job_id, walltime_seconds
+            )
             try:
                 process.terminate()
                 # Give 10s for graceful shutdown
                 try:
                     await asyncio.wait_for(process.wait(), timeout=10)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     process.kill()
                     await process.wait()
             except ProcessLookupError:

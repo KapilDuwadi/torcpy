@@ -11,7 +11,7 @@ import os
 import platform
 from dataclasses import dataclass, field
 
-from torcpy.models.resource_requirements import ResourceRequirements, parse_memory_to_bytes
+from torcpy.models.resource_requirements import ResourceRequirements
 
 logger = logging.getLogger(__name__)
 

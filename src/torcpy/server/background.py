@@ -33,7 +33,7 @@ class BackgroundUnblockTask:
         if self._task:
             try:
                 await asyncio.wait_for(self._task, timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._task.cancel()
                 try:
                     await self._task
@@ -51,7 +51,7 @@ class BackgroundUnblockTask:
         while self._running:
             try:
                 await asyncio.wait_for(self._event.wait(), timeout=self.interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             self._event.clear()
 
@@ -88,9 +88,7 @@ class BackgroundUnblockTask:
                     if status == 5:  # COMPLETED
                         await self._unblock_dependents(conn, workflow_id, job_id)
                     elif status in (6, 7, 8):  # FAILED, CANCELED, TERMINATED
-                        await self._handle_failed_dependency(
-                            conn, workflow_id, job_id
-                        )
+                        await self._handle_failed_dependency(conn, workflow_id, job_id)
 
                     await conn.execute(
                         "UPDATE job SET unblocking_processed = 1 WHERE id = ?",
@@ -136,9 +134,7 @@ class BackgroundUnblockTask:
                     "UPDATE job SET status = 2 WHERE id = ? AND status = 1",
                     (dep_job_id,),
                 )
-                logger.debug(
-                    "Unblocked job workflow_id=%d job_id=%d", workflow_id, dep_job_id
-                )
+                logger.debug("Unblocked job workflow_id=%d job_id=%d", workflow_id, dep_job_id)
 
     async def _handle_failed_dependency(
         self, conn: object, workflow_id: int, failed_job_id: int

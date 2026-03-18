@@ -121,7 +121,8 @@ async def update_resource_requirements(
     if updates:
         params.extend([rr_id, workflow_id])
         await db.execute(
-            f"UPDATE resource_requirements SET {', '.join(updates)} WHERE id = ? AND workflow_id = ?",
+            "UPDATE resource_requirements SET "
+            f"{', '.join(updates)} WHERE id = ? AND workflow_id = ?",
             tuple(params),
         )
         await db.conn.commit()

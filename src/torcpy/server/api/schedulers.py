@@ -15,12 +15,8 @@ from torcpy.models.scheduler import (
 from torcpy.server.database import Database, clamp_pagination
 from torcpy.server.deps import get_db
 
-local_router = APIRouter(
-    prefix="/workflows/{workflow_id}/local_schedulers", tags=["schedulers"]
-)
-slurm_router = APIRouter(
-    prefix="/workflows/{workflow_id}/slurm_schedulers", tags=["schedulers"]
-)
+local_router = APIRouter(prefix="/workflows/{workflow_id}/local_schedulers", tags=["schedulers"])
+slurm_router = APIRouter(prefix="/workflows/{workflow_id}/slurm_schedulers", tags=["schedulers"])
 
 
 # ── Local Scheduler ──
@@ -118,7 +114,8 @@ async def create_slurm_scheduler(
     workflow_id: int, body: SlurmSchedulerCreate, db: Database = Depends(get_db)
 ) -> SlurmScheduler:
     sid = await db.insert(
-        "INSERT INTO slurm_scheduler (workflow_id, account, partition, slurm_config) VALUES (?,?,?,?)",
+        "INSERT INTO slurm_scheduler"
+        " (workflow_id, account, partition, slurm_config) VALUES (?,?,?,?)",
         (
             workflow_id,
             body.account,

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Any, AsyncGenerator
 
 import aiosqlite
 
@@ -63,25 +61,17 @@ class Database:
             await self.conn.execute("ROLLBACK")
             raise
 
-    async def execute(
-        self, sql: str, params: tuple | dict | None = None
-    ) -> aiosqlite.Cursor:
+    async def execute(self, sql: str, params: tuple | dict | None = None) -> aiosqlite.Cursor:
         return await self.conn.execute(sql, params or ())
 
-    async def executemany(
-        self, sql: str, params_seq: list[tuple | dict]
-    ) -> aiosqlite.Cursor:
+    async def executemany(self, sql: str, params_seq: list[tuple | dict]) -> aiosqlite.Cursor:
         return await self.conn.executemany(sql, params_seq)
 
-    async def fetchone(
-        self, sql: str, params: tuple | dict | None = None
-    ) -> aiosqlite.Row | None:
+    async def fetchone(self, sql: str, params: tuple | dict | None = None) -> aiosqlite.Row | None:
         cursor = await self.execute(sql, params)
         return await cursor.fetchone()
 
-    async def fetchall(
-        self, sql: str, params: tuple | dict | None = None
-    ) -> list[aiosqlite.Row]:
+    async def fetchall(self, sql: str, params: tuple | dict | None = None) -> list[aiosqlite.Row]:
         cursor = await self.execute(sql, params)
         return await cursor.fetchall()
 

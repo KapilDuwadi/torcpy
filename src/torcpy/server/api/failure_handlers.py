@@ -10,9 +10,7 @@ from torcpy.models.failure_handler import FailureHandler, FailureHandlerCreate
 from torcpy.server.database import Database, clamp_pagination
 from torcpy.server.deps import get_db
 
-router = APIRouter(
-    prefix="/workflows/{workflow_id}/failure_handlers", tags=["failure_handlers"]
-)
+router = APIRouter(prefix="/workflows/{workflow_id}/failure_handlers", tags=["failure_handlers"])
 
 
 def _row_to_fh(row: dict) -> FailureHandler:

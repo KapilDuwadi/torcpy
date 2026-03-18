@@ -22,9 +22,7 @@ def _row_to_file(row: dict) -> File:
 
 
 @router.post("", status_code=201)
-async def create_file(
-    workflow_id: int, body: FileCreate, db: Database = Depends(get_db)
-) -> File:
+async def create_file(workflow_id: int, body: FileCreate, db: Database = Depends(get_db)) -> File:
     fid = await db.insert(
         "INSERT INTO file (workflow_id, name, path, st_mtime) VALUES (?, ?, ?, ?)",
         (workflow_id, body.name, body.path, body.st_mtime),
@@ -55,9 +53,7 @@ async def list_files(
 
 
 @router.get("/{file_id}")
-async def get_file(
-    workflow_id: int, file_id: int, db: Database = Depends(get_db)
-) -> File:
+async def get_file(workflow_id: int, file_id: int, db: Database = Depends(get_db)) -> File:
     row = await db.fetchone(
         "SELECT * FROM file WHERE id = ? AND workflow_id = ?", (file_id, workflow_id)
     )
@@ -92,9 +88,7 @@ async def update_file(
 
 
 @router.delete("/{file_id}", status_code=204)
-async def delete_file(
-    workflow_id: int, file_id: int, db: Database = Depends(get_db)
-) -> None:
+async def delete_file(workflow_id: int, file_id: int, db: Database = Depends(get_db)) -> None:
     result = await db.execute(
         "DELETE FROM file WHERE id = ? AND workflow_id = ?", (file_id, workflow_id)
     )

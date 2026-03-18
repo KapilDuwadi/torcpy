@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
@@ -34,7 +34,6 @@ async def db(tmp_path) -> AsyncGenerator[Database, None]:
 @pytest_asyncio.fixture
 async def client(tmp_path) -> AsyncGenerator[AsyncClient, None]:
     """Create an async test client with lifespan properly managed."""
-    from contextlib import asynccontextmanager
 
     from fastapi import FastAPI
 

@@ -18,6 +18,7 @@ import yaml
 from torcpy.client.api_client import TorcClient
 from torcpy.client.parameter_expansion import expand_parameters, substitute_template
 from torcpy.models import (
+    FailureHandlerCreate,
     FileCreate,
     JobCreate,
     LocalSchedulerCreate,
@@ -25,7 +26,6 @@ from torcpy.models import (
     SlurmSchedulerCreate,
     UserDataCreate,
     WorkflowCreate,
-    FailureHandlerCreate,
 )
 from torcpy.models.enums import JobStatus
 from torcpy.models.failure_handler import FailureHandlerRule
@@ -79,9 +79,7 @@ class JobSpec:
         self.resource_requirements: ResourceRequirementsSpec | None = None
         self.failure_handler: str | None = data.get("failure_handler")
         self.priority: int = data.get("priority", 0)
-        self.cancel_on_blocking_job_failure: bool = data.get(
-            "cancel_on_blocking_job_failure", True
-        )
+        self.cancel_on_blocking_job_failure: bool = data.get("cancel_on_blocking_job_failure", True)
         self.supports_termination: bool = data.get("supports_termination", False)
         self.parameters: dict[str, str] = data.get("parameters", {})
         self.parameter_mode: str = data.get("parameter_mode", "cartesian")
@@ -114,9 +112,7 @@ class WorkflowSpec:
         self.execution_config: dict | None = data.get("execution_config")
 
         self.files: list[FileSpec] = [FileSpec(f) for f in data.get("files", [])]
-        self.user_data: list[UserDataSpec] = [
-            UserDataSpec(u) for u in data.get("user_data", [])
-        ]
+        self.user_data: list[UserDataSpec] = [UserDataSpec(u) for u in data.get("user_data", [])]
         self.jobs: list[JobSpec] = [JobSpec(j) for j in data.get("jobs", [])]
         self.schedulers: list[SchedulerSpec] = [
             SchedulerSpec(s) for s in data.get("schedulers", [])
@@ -198,9 +194,7 @@ def _expand_job_specs(jobs: list[JobSpec], all_job_names: set[str]) -> list[JobS
             for params in combos:
                 new_data: dict[str, Any] = {
                     "name": substitute_template(job.name, params),
-                    "command": (
-                        substitute_template(job.command, params) if job.command else None
-                    ),
+                    "command": (substitute_template(job.command, params) if job.command else None),
                     "depends_on": [substitute_template(d, params) for d in job.depends_on],
                     "depends_on_regexes": job.depends_on_regexes,
                     "input_files": [substitute_template(f, params) for f in job.input_files],
@@ -299,9 +293,7 @@ async def create_workflow_from_spec(
         # 4. Create failure handlers
         fh_name_to_id: dict[str, int] = {}
         for fh in spec.failure_handlers:
-            rules = [
-                FailureHandlerRule(**r) for r in fh.rules
-            ]
+            rules = [FailureHandlerRule(**r) for r in fh.rules]
             created_fh = await client.create_failure_handler(
                 wf_id,
                 FailureHandlerCreate(
@@ -379,24 +371,16 @@ async def create_workflow_from_spec(
                     cancel_on_blocking_job_failure=job.cancel_on_blocking_job_failure,
                     supports_termination=job.supports_termination,
                     input_file_ids=[
-                        file_name_to_id[f]
-                        for f in job.input_files
-                        if f in file_name_to_id
+                        file_name_to_id[f] for f in job.input_files if f in file_name_to_id
                     ],
                     output_file_ids=[
-                        file_name_to_id[f]
-                        for f in job.output_files
-                        if f in file_name_to_id
+                        file_name_to_id[f] for f in job.output_files if f in file_name_to_id
                     ],
                     input_user_data_ids=[
-                        ud_name_to_id[u]
-                        for u in job.input_user_data
-                        if u in ud_name_to_id
+                        ud_name_to_id[u] for u in job.input_user_data if u in ud_name_to_id
                     ],
                     output_user_data_ids=[
-                        ud_name_to_id[u]
-                        for u in job.output_user_data
-                        if u in ud_name_to_id
+                        ud_name_to_id[u] for u in job.output_user_data if u in ud_name_to_id
                     ],
                     depends_on_job_ids=[],  # Set in second pass
                 ),
@@ -406,11 +390,7 @@ async def create_workflow_from_spec(
         # Second pass: set explicit dependencies
         for job in expanded_jobs:
             if job.depends_on:
-                dep_ids = [
-                    job_name_to_id[dep]
-                    for dep in job.depends_on
-                    if dep in job_name_to_id
-                ]
+                dep_ids = [job_name_to_id[dep] for dep in job.depends_on if dep in job_name_to_id]
                 if dep_ids:
                     job_id = job_name_to_id[job.name]
                     await client.update_job(
@@ -430,11 +410,7 @@ async def create_workflow_from_spec(
         # Actually, let's fix this: we need to create with deps
         for job in expanded_jobs:
             if job.depends_on:
-                dep_ids = [
-                    job_name_to_id[dep]
-                    for dep in job.depends_on
-                    if dep in job_name_to_id
-                ]
+                dep_ids = [job_name_to_id[dep] for dep in job.depends_on if dep in job_name_to_id]
                 if dep_ids:
                     job_id = job_name_to_id[job.name]
                     # Delete and recreate with dependencies
@@ -474,24 +450,16 @@ async def create_workflow_from_spec(
                             supports_termination=job.supports_termination,
                             depends_on_job_ids=dep_ids,
                             input_file_ids=[
-                                file_name_to_id[f]
-                                for f in job.input_files
-                                if f in file_name_to_id
+                                file_name_to_id[f] for f in job.input_files if f in file_name_to_id
                             ],
                             output_file_ids=[
-                                file_name_to_id[f]
-                                for f in job.output_files
-                                if f in file_name_to_id
+                                file_name_to_id[f] for f in job.output_files if f in file_name_to_id
                             ],
                             input_user_data_ids=[
-                                ud_name_to_id[u]
-                                for u in job.input_user_data
-                                if u in ud_name_to_id
+                                ud_name_to_id[u] for u in job.input_user_data if u in ud_name_to_id
                             ],
                             output_user_data_ids=[
-                                ud_name_to_id[u]
-                                for u in job.output_user_data
-                                if u in ud_name_to_id
+                                ud_name_to_id[u] for u in job.output_user_data if u in ud_name_to_id
                             ],
                         ),
                     )

@@ -83,9 +83,7 @@ class TorcClient:
         self._raise_for_status(resp)
         return Workflow.model_validate(resp.json())
 
-    async def list_workflows(
-        self, offset: int = 0, limit: int = 10000
-    ) -> dict:
+    async def list_workflows(self, offset: int = 0, limit: int = 10000) -> dict:
         resp = await self._client.get("/workflows", params={"offset": offset, "limit": limit})
         self._raise_for_status(resp)
         return resp.json()
@@ -176,15 +174,11 @@ class TorcClient:
         params: dict[str, Any] = {"count": count, "sort": sort.value}
         if compute_node_id is not None:
             params["compute_node_id"] = compute_node_id
-        resp = await self._client.post(
-            f"/workflows/{workflow_id}/jobs/claim", params=params
-        )
+        resp = await self._client.post(f"/workflows/{workflow_id}/jobs/claim", params=params)
         self._raise_for_status(resp)
         return [Job.model_validate(j) for j in resp.json()]
 
-    async def complete_job(
-        self, workflow_id: int, job_id: int, status: int = 5
-    ) -> Job:
+    async def complete_job(self, workflow_id: int, job_id: int, status: int = 5) -> Job:
         resp = await self._client.post(
             f"/workflows/{workflow_id}/jobs/{job_id}/complete",
             params={"status": status},
@@ -193,9 +187,7 @@ class TorcClient:
         return Job.model_validate(resp.json())
 
     async def reset_job(self, workflow_id: int, job_id: int) -> Job:
-        resp = await self._client.post(
-            f"/workflows/{workflow_id}/jobs/{job_id}/reset"
-        )
+        resp = await self._client.post(f"/workflows/{workflow_id}/jobs/{job_id}/reset")
         self._raise_for_status(resp)
         return Job.model_validate(resp.json())
 
@@ -263,9 +255,7 @@ class TorcClient:
         self._raise_for_status(resp)
         return Result.model_validate(resp.json())
 
-    async def list_results(
-        self, workflow_id: int, job_id: int | None = None
-    ) -> dict:
+    async def list_results(self, workflow_id: int, job_id: int | None = None) -> dict:
         params = {}
         if job_id is not None:
             params["job_id"] = job_id
@@ -275,9 +265,7 @@ class TorcClient:
 
     # ── Compute Nodes ──
 
-    async def create_compute_node(
-        self, workflow_id: int, body: ComputeNodeCreate
-    ) -> ComputeNode:
+    async def create_compute_node(self, workflow_id: int, body: ComputeNodeCreate) -> ComputeNode:
         resp = await self._client.post(
             f"/workflows/{workflow_id}/compute_nodes",
             json=body.model_dump(exclude_none=True),

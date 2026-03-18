@@ -129,8 +129,7 @@ def submit_cmd(ctx: click.Context, spec_or_id: str) -> None:
             result = await client.initialize_workflow(wf_id)
             console.print(f"Initialized workflow {wf_id}")
             console.print(
-                f"  Ready: {result.get('ready_jobs', 0)}, "
-                f"Blocked: {result.get('blocked_jobs', 0)}"
+                f"  Ready: {result.get('ready_jobs', 0)}, Blocked: {result.get('blocked_jobs', 0)}"
             )
 
     run_async(_submit())
@@ -294,8 +293,7 @@ def workflows_initialize(ctx: click.Context, workflow_id: int) -> None:
             result = await client.initialize_workflow(workflow_id)
             console.print(f"Initialized workflow {workflow_id}")
             console.print(
-                f"  Ready: {result.get('ready_jobs', 0)}, "
-                f"Blocked: {result.get('blocked_jobs', 0)}"
+                f"  Ready: {result.get('ready_jobs', 0)}, Blocked: {result.get('blocked_jobs', 0)}"
             )
 
     run_async(_init())

@@ -108,9 +108,6 @@ def expand_parameters(
 
     if mode == "zip":
         min_len = min(len(v) for v in value_lists)
-        return [
-            dict(zip(names, vals))
-            for vals in zip(*(v[:min_len] for v in value_lists))
-        ]
+        return [dict(zip(names, vals)) for vals in zip(*(v[:min_len] for v in value_lists))]
     else:  # cartesian
         return [dict(zip(names, combo)) for combo in product(*value_lists)]
