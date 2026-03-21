@@ -2,190 +2,190 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://torcpy.readthedocs.io/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/concepts/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/concepts/architecture/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/concepts/dependencies/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/concepts/job-states/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/concepts/parameterization/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/concepts/resources/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/concepts/workflow-spec/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/design/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/design/architecture/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/design/client/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/design/database/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/design/dependency-graph/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/design/job-runner/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/design/server/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/getting-started/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/getting-started/installation/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/getting-started/quick-start-local/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/getting-started/quick-start-server/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/how-to/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/how-to/cancel-workflow/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/how-to/debug-failed-job/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/how-to/parameterize-with-files/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/how-to/rerun-failed-jobs/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/how-to/set-resources/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/how-to/track-status/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/how-to/use-python-library/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/monitoring/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/monitoring/debugging/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/monitoring/logs/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/monitoring/reports/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/api/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/cli-cheatsheet/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/cli/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/environment-variables/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/parameterization/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/python-api/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/resources/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/reference/workflow-spec/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/tutorials/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/tutorials/diamond/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/tutorials/many-jobs/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/tutorials/multi-stage/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/tutorials/parameter-sweep/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/tutorials/simple-dag/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
     <url>
          <loc>https://torcpy.readthedocs.io/tutorials/user-data/</loc>
-         <lastmod>2026-03-18</lastmod>
+         <lastmod>2026-03-21</lastmod>
     </url>
 </urlset>
