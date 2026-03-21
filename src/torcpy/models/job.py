@@ -5,6 +5,13 @@ from pydantic import BaseModel
 from torcpy.models.enums import JobStatus
 
 
+class JobListResponse(BaseModel):
+    items: list["Job"]
+    offset: int = 0
+    limit: int = 10000
+    has_more: bool = False
+
+
 class JobCreate(BaseModel):
     workflow_id: int
     name: str

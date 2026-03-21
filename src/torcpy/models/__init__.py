@@ -13,7 +13,7 @@ from torcpy.models.enums import (
 from torcpy.models.event import Event, EventCreate
 from torcpy.models.failure_handler import FailureHandler, FailureHandlerCreate
 from torcpy.models.file import File, FileCreate, FileUpdate
-from torcpy.models.job import Job, JobCreate, JobUpdate
+from torcpy.models.job import Job, JobCreate, JobListResponse, JobUpdate
 from torcpy.models.resource_requirements import (
     ResourceRequirements,
     ResourceRequirementsCreate,
@@ -50,6 +50,7 @@ __all__ = [
     "FileUpdate",
     "Job",
     "JobCreate",
+    "JobListResponse",
     "JobStatus",
     "JobUpdate",
     "LocalScheduler",

@@ -18,6 +18,7 @@ from torcpy.models import (
     FileCreate,
     Job,
     JobCreate,
+    JobListResponse,
     JobUpdate,
     LocalScheduler,
     LocalSchedulerCreate,
@@ -149,13 +150,13 @@ class TorcClient:
         status: int | None = None,
         offset: int = 0,
         limit: int = 10000,
-    ) -> dict:
+    ) -> JobListResponse:
         params: dict[str, Any] = {"offset": offset, "limit": limit}
         if status is not None:
             params["status"] = status
         resp = await self._client.get(f"/workflows/{workflow_id}/jobs", params=params)
         self._raise_for_status(resp)
-        return resp.json()
+        return JobListResponse.model_validate(resp.json())
 
     async def get_job(self, workflow_id: int, job_id: int) -> Job:
         resp = await self._client.get(f"/workflows/{workflow_id}/jobs/{job_id}")

@@ -7,12 +7,64 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import Callable
 
 import rich_click as click
 from rich.console import Console
 from rich.table import Table
 
+from torcpy.models.job import Job
+
 console = Console()
+
+
+# ── Output renderer registries ──
+
+
+async def _render_create_json(client: object, wf_id: int, spec_name: str) -> None:
+    from torcpy.client import TorcClient
+
+    wf = await client.get_workflow(wf_id)  # type: ignore[union-attr]
+    console.print_json(wf.model_dump_json())
+
+
+async def _render_create_table(client: object, wf_id: int, spec_name: str) -> None:
+    console.print(f"Created workflow [cyan]{wf_id}[/cyan]: {spec_name}")
+
+
+_WORKFLOW_CREATE_RENDERERS: dict[str, Callable] = {
+    "json": _render_create_json,
+    "table": _render_create_table,
+}
+
+
+def _build_jobs_table(jobs: list[Job]) -> Table:
+    table = Table(title="Jobs")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name")
+    table.add_column("Status")
+    table.add_column("Priority")
+    table.add_column("Command")
+    for job in jobs:
+        cmd = job.command or ""
+        if len(cmd) > 50:
+            cmd = cmd[:47] + "..."
+        table.add_row(
+            str(job.id),
+            job.name,
+            job.status.name.lower(),
+            str(job.priority),
+            cmd,
+        )
+    return table
+
+
+_JOB_RENDERERS: dict[str, Callable[[list[Job]], None]] = {
+    "json": lambda jobs: console.print_json(
+        json.dumps([j.model_dump() for j in jobs])
+    ),
+    "table": lambda jobs: console.print(_build_jobs_table(jobs)),
+}
 
 DEFAULT_URL = "http://localhost:8080/torcpy/v1"
 
@@ -153,14 +205,15 @@ def workflows_create(ctx: click.Context, spec_file: str, fmt: str) -> None:
     async def _create() -> None:
         from torcpy.client import TorcClient, WorkflowSpec, create_workflow_from_spec
 
+        renderer = _WORKFLOW_CREATE_RENDERERS.get(fmt)
+        if renderer is None:
+            raise click.UsageError(
+                f"Unknown format {fmt!r}. Choose: {', '.join(_WORKFLOW_CREATE_RENDERERS)}"
+            )
         async with TorcClient(get_url(ctx)) as client:
             spec = WorkflowSpec.from_file(spec_file)
             wf_id = await create_workflow_from_spec(client, spec)
-            if fmt == "json":
-                wf = await client.get_workflow(wf_id)
-                console.print_json(wf.model_dump_json())
-            else:
-                console.print(f"Created workflow {wf_id}: {spec.name}")
+            await renderer(client, wf_id, spec.name)
 
     run_async(_create())
 
@@ -355,33 +408,15 @@ def jobs_list(ctx: click.Context, workflow_id: int, status: int | None, fmt: str
 
     async def _list() -> None:
         from torcpy.client import TorcClient
-        from torcpy.models.enums import JobStatus
 
+        renderer = _JOB_RENDERERS.get(fmt)
+        if renderer is None:
+            raise click.UsageError(
+                f"Unknown format {fmt!r}. Choose: {', '.join(_JOB_RENDERERS)}"
+            )
         async with TorcClient(get_url(ctx)) as client:
-            result = await client.list_jobs(workflow_id, status=status)
-            items = result.get("items", [])
-            if fmt == "json":
-                console.print_json(json.dumps(items))
-            else:
-                table = Table(title=f"Jobs (workflow {workflow_id})")
-                table.add_column("ID", style="cyan")
-                table.add_column("Name")
-                table.add_column("Status")
-                table.add_column("Priority")
-                table.add_column("Command")
-                for item in items:
-                    st = JobStatus(item["status"])
-                    cmd = item.get("command", "") or ""
-                    if len(cmd) > 50:
-                        cmd = cmd[:47] + "..."
-                    table.add_row(
-                        str(item["id"]),
-                        item["name"],
-                        st.name.lower(),
-                        str(item.get("priority", 0)),
-                        cmd,
-                    )
-                console.print(table)
+            response = await client.list_jobs(workflow_id, status=status)
+        renderer(response.items)
 
     run_async(_list())
 
